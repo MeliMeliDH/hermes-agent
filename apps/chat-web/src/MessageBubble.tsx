@@ -1,13 +1,14 @@
 import { createElement, Fragment, type ReactNode, useEffect, useState } from 'react'
 
 import { HERMES_BASE_PATH } from './auth'
-import type { MessageBubbleModel } from './chat-state'
+import type { InputRequestModel, MessageBubbleModel } from './chat-state'
 import { initialsForName, type ProfileIdentity } from './identity'
 import { type MessageAttachment, safeMediaUrl } from './message-content'
 
 interface MessageBubbleProps {
   identity?: ProfileIdentity
   message: MessageBubbleModel
+  onInputResponse?: (request: InputRequestModel, response: string) => Promise<void>
 }
 
 const INLINE_MARKDOWN = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g
@@ -142,6 +143,99 @@ function MediaPathAttachment({ attachment }: { attachment: MessageAttachment }) 
   return <a className="message-file" download={attachment.name} href={dataUrl}>{`File · ${attachment.name}`}</a>
 }
 
+function displayValue(value: unknown): string {
+  if (typeof value === 'string') {return value}
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function ToolCall({ tool }: { tool: NonNullable<MessageBubbleModel['tool']> }) {
+  const compactArgs = displayValue(tool.args ?? {})
+
+  return (
+    <details className="tool-call">
+      <summary>
+        <strong>{tool.name}</strong>
+        <code>{compactArgs.replace(/\s+/g, ' ')}</code>
+        <span>{tool.status}</span>
+      </summary>
+      <div className="tool-call-details">
+        <strong>Arguments</strong>
+        <pre><code>{compactArgs}</code></pre>
+        {tool.preview !== undefined && <><strong>Preview</strong><pre><code>{displayValue(tool.preview)}</code></pre></>}
+        {tool.progress !== undefined && <><strong>Progress</strong><pre><code>{displayValue(tool.progress)}</code></pre></>}
+        {tool.result !== undefined && <><strong>Result</strong><pre><code>{displayValue(tool.result)}</code></pre></>}
+      </div>
+    </details>
+  )
+}
+
+function InputPrompt({ onRespond, request }: {
+  onRespond?: (request: InputRequestModel, response: string) => Promise<void>
+  request: InputRequestModel
+}) {
+  const [sending, setSending] = useState(false)
+
+  const respond = (response: string) => {
+    if (!onRespond || sending || request.resolved) {return}
+    setSending(true)
+    void onRespond(request, response).finally(() => setSending(false))
+  }
+
+  if (request.kind === 'approval') {
+    return (
+      <section className="input-request" data-kind="approval">
+        <strong>Approval required</strong>
+        <p>{request.description || request.question}</p>
+        {request.command && <pre><code>{request.command}</code></pre>}
+        <div className="input-request-actions">
+          <button className="button button-primary" disabled={sending || request.resolved} onClick={() => respond('once')} type="button">Run once</button>
+          <button className="button" disabled={sending || request.resolved} onClick={() => respond('deny')} type="button">Reject</button>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <form className="input-request" data-kind="clarify" onSubmit={event => {
+      event.preventDefault()
+      const answer = String(new FormData(event.currentTarget).get('answer') ?? '').trim()
+
+      if (answer) {respond(answer)}
+    }}>
+      <strong>Hermes needs your input</strong>
+      <p>{request.question}</p>
+      {request.choices?.length && (
+        <div className="input-request-actions">
+          {request.choices.map(choice => (
+            <button className="button" disabled={sending || request.resolved} key={choice} onClick={() => respond(choice)} type="button">{choice}</button>
+          ))}
+        </div>
+      )}
+      <div className="input-request-response">
+        <input aria-label="Response" disabled={sending || request.resolved} name="answer" type="text" />
+        <button className="button button-primary" disabled={sending || request.resolved} type="submit">Respond</button>
+      </div>
+    </form>
+  )
+}
+
+function ErrorSurface({ message }: { message: MessageBubbleModel }) {
+  if (message.status !== 'error') {return null}
+  const detail = message.errorSurface === undefined ? '' : displayValue(message.errorSurface)
+
+  return (
+    <div className="message-error" role="alert">
+      <strong>{message.error || 'Response ended with an error.'}</strong>
+      {detail && <pre><code>{detail}</code></pre>}
+    </div>
+  )
+}
+
 function RenderedContent({ message }: { message: MessageBubbleModel }) {
   const hint = message.rendered
 
@@ -160,7 +254,7 @@ function formatTimestamp(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(timestamp * 1000)
 }
 
-export function MessageBubble({ identity, message }: MessageBubbleProps) {
+export function MessageBubble({ identity, message, onInputResponse }: MessageBubbleProps) {
   const avatar = identity?.avatar
   const initials = initialsForName(message.senderName)
   const timestamp = formatTimestamp(message.timestamp)
@@ -182,10 +276,18 @@ export function MessageBubble({ identity, message }: MessageBubbleProps) {
           {message.interim && <span className="message-label">Interim</span>}
         </header>
         <div className="message-bubble">
+          {message.inputRequest && <InputPrompt onRespond={onInputResponse} request={message.inputRequest} />}
+          {message.reasoning && (
+            <details className="message-reasoning">
+              <summary>Thinking</summary>
+              <MarkdownText text={message.reasoning} />
+            </details>
+          )}
+          {message.tool && <ToolCall tool={message.tool} />}
           {message.text && <RenderedContent message={message} />}
           <AttachmentList attachments={message.attachments} />
           {message.streaming && <span aria-label="Streaming" className="streaming-caret" />}
-          {message.status === 'error' && <p className="message-error">Response ended with an error.</p>}
+          <ErrorSurface message={message} />
         </div>
       </div>
     </article>

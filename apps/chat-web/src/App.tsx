@@ -3,10 +3,11 @@ import { reconnectBackoffDelayMs } from '@hermes/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { HERMES_BASE_PATH } from './auth'
-import { appendLocalMessage, applyMessageEvent, historyToBubbles, type MessageBubbleModel, type MessagePayload } from './chat-state'
+import { appendLocalMessage, applyInputRequestEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, historyToBubbles, type InputRequestModel, type InputRequestPayload, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, resolveInputRequest, type ToolPayload } from './chat-state'
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
 import { ChatGatewayClient } from './gateway'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
+import { respondToInputRequest } from './input-requests'
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { isNearBottom } from './scroll-follow'
@@ -100,6 +101,20 @@ export function App() {
     }
   }, [])
 
+  const handleInputResponse = useCallback(async (request: InputRequestModel, response: string) => {
+    const gateway = gatewayRef.current
+    const runtimeId = activeRuntimeRef.current
+
+    if (!gateway || !runtimeId) {return}
+
+    try {
+      await respondToInputRequest(gateway, request, response, runtimeId)
+      setMessages(current => resolveInputRequest(current, request.requestId))
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : 'Could not send response')
+    }
+  }, [])
+
   const refreshSessions = useCallback(async (gateway = gatewayRef.current) => {
     if (!gateway) {return []}
     const result = await gateway.request<SessionListResult>('session.list', { limit: 200 })
@@ -144,6 +159,33 @@ export function App() {
         setMessages(current => applyMessageEvent(current, event as GatewayEvent<MessagePayload>, activeProfileRef.current))
       }))
 
+      const toolTypes = ['tool.start', 'tool.progress', 'tool.complete'] as const
+
+      const unsubscribeTools = toolTypes.map(type => gateway.on(type, event => {
+        const runtimeId = activeRuntimeRef.current
+
+        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+        setMessages(current => applyToolEvent(current, event as GatewayEvent<ToolPayload>))
+      }))
+
+      const reasoningTypes = ['thinking.delta', 'reasoning.delta'] as const
+
+      const unsubscribeReasoning = reasoningTypes.map(type => gateway.on(type, event => {
+        const runtimeId = activeRuntimeRef.current
+
+        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+        setMessages(current => applyReasoningEvent(current, event as GatewayEvent<ReasoningPayload>, activeProfileRef.current))
+      }))
+
+      const inputTypes = ['clarify.request', 'approval.request'] as const
+
+      const unsubscribeInput = inputTypes.map(type => gateway.on(type, event => {
+        const runtimeId = activeRuntimeRef.current
+
+        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+        setMessages(current => applyInputRequestEvent(current, event as GatewayEvent<InputRequestPayload>))
+      }))
+
       const unsubscribeTitle = gateway.on('session.title', () => { void refreshSessions(gateway) })
 
       void gateway.connect().then(async () => {
@@ -174,6 +216,9 @@ export function App() {
         unsubscribeReady()
         unsubscribeTitle()
         unsubscribeMessages.forEach(unsubscribe => unsubscribe())
+        unsubscribeTools.forEach(unsubscribe => unsubscribe())
+        unsubscribeReasoning.forEach(unsubscribe => unsubscribe())
+        unsubscribeInput.forEach(unsubscribe => unsubscribe())
         gateway.close()
       }
     }
@@ -460,6 +505,7 @@ export function App() {
                 }
                 key={message.id}
                 message={message}
+                onInputResponse={handleInputResponse}
               />
             ))
           ) : (

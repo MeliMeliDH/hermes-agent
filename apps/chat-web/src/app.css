@@ -541,10 +541,102 @@
 }
 
 .message-error {
-  border-top: var(--border-width) solid var(--color-border);
+  border-top: var(--border-width) solid var(--color-danger);
+  display: grid;
   font-size: var(--font-size-sm);
+  gap: var(--space-2);
   margin-top: var(--space-3);
   padding-top: var(--space-2);
+}
+
+.message-error pre {
+  margin: 0;
+}
+
+.tool-call {
+  min-width: min(calc(var(--space-8) * 8), 70vw);
+}
+
+.tool-call summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.tool-call summary code {
+  color: var(--color-text-muted);
+  flex: 1;
+  max-width: min(calc(var(--space-8) * 6), 45vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call summary span,
+.tool-call-details > strong {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.tool-call-details {
+  border-top: var(--border-width) solid var(--color-border);
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.tool-call-details pre {
+  margin: 0;
+}
+
+.message-reasoning {
+  border-bottom: var(--border-width) solid var(--color-border);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.message-reasoning summary {
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.message-reasoning p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-2);
+}
+
+.input-request {
+  display: grid;
+  gap: var(--space-3);
+  min-width: min(calc(var(--space-8) * 7), 70vw);
+}
+
+.input-request p,
+.input-request pre {
+  margin: 0;
+}
+
+.input-request[data-kind='approval'] {
+  border-left: calc(var(--border-width) * 3) solid var(--color-accent);
+  padding-left: var(--space-3);
+}
+
+.input-request-actions,
+.input-request-response {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.input-request-response input {
+  flex: 1;
+  min-width: calc(var(--space-8) * 3);
 }
 
 @keyframes blink {
