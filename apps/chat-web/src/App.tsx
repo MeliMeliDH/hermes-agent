@@ -9,6 +9,7 @@ import { ChatGatewayClient } from './gateway'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
+import { isNearBottom } from './scroll-follow'
 import { createSession, deleteSession, ensureSessionRuntime, openSession, type SessionRow } from './sessions'
 import { loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
@@ -58,6 +59,12 @@ export function App() {
   const activeRuntimeRef = useRef<string | null>(null)
   const activeProfileRef = useRef('default')
   const openGenerationRef = useRef(0)
+  const messageListRef = useRef<HTMLDivElement | null>(null)
+  // Tracks whether the user is scrolled near the bottom, so new/streaming
+  // messages auto-scroll only when they're already following along --
+  // never yank the view while they're reading scrollback further up.
+  const stickToBottomRef = useRef(true)
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
 
   const showSession = useCallback(async (session: SessionRow, gateway = gatewayRef.current) => {
     if (!gateway) {return}
@@ -69,6 +76,8 @@ export function App() {
     activeProfileRef.current = profileName
     setLoadingHistory(true)
     setSessionError(null)
+    stickToBottomRef.current = true
+    setShowJumpToBottom(false)
 
     try {
       const opened = await openSession(gateway, session, runtimesRef.current.get(session.id))
@@ -330,6 +339,37 @@ export function App() {
     })
   }
 
+  // Called on every scroll of the message list: a user actively reading
+  // scrollback (not near the bottom) must never be auto-scrolled away from
+  // what they're reading when a new message/streaming delta arrives.
+  const handleMessageListScroll = () => {
+    const el = messageListRef.current
+
+    if (!el) {return}
+    const nearBottom = isNearBottom({ clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, scrollTop: el.scrollTop })
+
+    stickToBottomRef.current = nearBottom
+    setShowJumpToBottom(!nearBottom)
+  }
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    const el = messageListRef.current
+
+    if (!el) {return}
+    el.scrollTo({ behavior, top: el.scrollHeight })
+    stickToBottomRef.current = true
+    setShowJumpToBottom(false)
+  }
+
+  useEffect(() => {
+    if (stickToBottomRef.current) {
+      // No smooth-scroll here: a streaming response fires this on every
+      // delta, and animating each one fights itself -- jump instantly,
+      // reserve the smooth behavior for the explicit jump-to-bottom click.
+      scrollToBottom('instant')
+    }
+  }, [messages])
+
   const activeSession = sessions.find(session => session.id === activeStoredId)
   const slashQuery = draft.split(/\s/, 1)[0]?.toLowerCase() ?? ''
 
@@ -399,7 +439,13 @@ export function App() {
         </header>
 
         {sessionError && <div className="session-error" role="alert">{sessionError}</div>}
-        <div aria-busy={loadingHistory} aria-live="polite" className="message-list">
+        <div
+          aria-busy={loadingHistory}
+          aria-live="polite"
+          className="message-list"
+          onScroll={handleMessageListScroll}
+          ref={messageListRef}
+        >
           {loadingHistory ? (
             <div className="empty-state">Loading session history…</div>
           ) : messages.length ? (
@@ -420,6 +466,14 @@ export function App() {
             <div className="empty-state">{activeSession ? 'No messages in this session yet.' : 'Choose a session to view its history.'}</div>
           )}
         </div>
+        {showJumpToBottom && (
+          <button
+            aria-label="Jump to newest messages"
+            className="button jump-to-bottom"
+            onClick={() => scrollToBottom('smooth')}
+            type="button"
+          >↓ New messages</button>
+        )}
         <MessageComposer
           busy={turnRunning}
           disabled={connection !== 'connected' || !activeStoredId || loadingHistory}
