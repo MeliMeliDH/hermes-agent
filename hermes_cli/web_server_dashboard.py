@@ -88,6 +88,7 @@ _HEADLESS_MSG = (
     "Headless backend (hermes serve): web UI disabled — use "
     "`hermes dashboard` for the browser UI."
 )
+CHAT_WEB_DIST = Path(__file__).parent / "chat_web_dist"
 
 
 def mount_spa(application: FastAPI):
@@ -170,6 +171,60 @@ def mount_spa(application: FastAPI):
             html = html.replace("</head>", f"{theme_bootstrap}</head>", 1)
         html = html.replace("</head>", f"{bootstrap_script}</head>", 1)
         return HTMLResponse(html, headers=_NO_STORE)
+
+    def _serve_chat_web_index(prefix: str = ""):
+        """Serve the separate structured chat SPA with dashboard auth metadata."""
+        try:
+            html = (CHAT_WEB_DIST / "index.html").read_text(encoding="utf-8")
+        except OSError:
+            return JSONResponse(
+                {"error": "Chat UI not built. Run: npm run build -w @hermes/chat-web"},
+                status_code=404,
+            )
+
+        gated = bool(getattr(application.state, "auth_required", False))
+        token_js = "" if gated else (
+            f"window.__HERMES_SESSION_TOKEN__={json.dumps(_server()._SESSION_TOKEN)};"
+        )
+        bootstrap_script = (
+            f"<script>{token_js}"
+            f'window.__HERMES_BASE_PATH__={json.dumps(prefix)};'
+            f"window.__HERMES_AUTH_REQUIRED__={'true' if gated else 'false'};"
+            "</script>"
+        )
+        if prefix:
+            for attr in ('href="/chat-ui/', 'src="/chat-ui/'):
+                html = html.replace(attr, attr.replace('"/', f'"{prefix}/', 1))
+        html = html.replace("</head>", f"{bootstrap_script}</head>", 1)
+        return HTMLResponse(html, headers=_NO_STORE)
+
+    class _ChatWebAssetFiles(StaticFiles):
+        async def get_response(self, path: str, scope):
+            response = await super().get_response(path, scope)
+            if response.status_code == 200:
+                response.headers["Cache-Control"] = _IMMUTABLE_ASSET_CACHE_CONTROL
+            return response
+
+    application.mount(
+        "/chat-ui/assets",
+        _ChatWebAssetFiles(directory=CHAT_WEB_DIST / "assets", check_dir=False),
+        name="chat-web-assets",
+    )
+
+    @application.get("/chat-ui")
+    @application.get("/chat-ui/")
+    @application.get("/chat-ui/{full_path:path}")
+    async def serve_chat_web(request: Request, full_path: str = ""):
+        prefix = _normalise_prefix(request.headers.get("x-forwarded-prefix"))
+        file_path = CHAT_WEB_DIST / full_path
+        if (
+            full_path
+            and file_path.resolve().is_relative_to(CHAT_WEB_DIST.resolve())
+            and file_path.exists()
+            and file_path.is_file()
+        ):
+            return FileResponse(file_path)
+        return _serve_chat_web_index(prefix)
 
     # Built CSS contains absolute ``url(/fonts/...)`` / ``url(/ds-assets/...)`` references that
     # browsers resolve against the document origin — wrong under a proxy prefix. Intercept CSS
