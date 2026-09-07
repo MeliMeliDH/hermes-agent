@@ -275,6 +275,11 @@ export function App() {
         if (result.status !== 'streaming') {
           setMessages(current => appendLocalMessage(current, 'system', input, `Gateway status: ${result.status}`))
         }
+
+        // The gateway bumps this session's last-active ordering server-side on
+        // a real send; re-pull the list so the sidebar reflects it instead of
+        // showing a stale snapshot from page-load/last-refresh time.
+        void refreshSessions(gateway)
       } else if (result.kind === 'output') {
         setMessages(current => appendLocalMessage(current, 'system', input, result.text))
       } else {
