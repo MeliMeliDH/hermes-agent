@@ -1,11 +1,13 @@
 import type { GatewayEvent } from '@hermes/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { applyMessageEvent, historyToBubbles, type MessageBubbleModel, type MessagePayload } from './chat-state'
 import { HERMES_BASE_PATH } from './auth'
+import { appendLocalMessage, applyMessageEvent, historyToBubbles, type MessageBubbleModel, type MessagePayload } from './chat-state'
+import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
 import { ChatGatewayClient } from './gateway'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
 import { MessageBubble } from './MessageBubble'
+import { MessageComposer } from './MessageComposer'
 import { createSession, deleteSession, openSession, type SessionRow } from './sessions'
 
 interface SessionListResult {
@@ -45,6 +47,9 @@ export function App() {
   const [profiles, setProfiles] = useState<Record<string, ProfileIdentity>>({})
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [turnRunning, setTurnRunning] = useState(false)
+  const [slashSuggestions, setSlashSuggestions] = useState<SlashSuggestion[]>([])
   const gatewayRef = useRef<ChatGatewayClient | null>(null)
   const runtimesRef = useRef(new Map<string, string>())
   const activeRuntimeRef = useRef<string | null>(null)
@@ -99,16 +104,25 @@ export function App() {
       const runtimeId = activeRuntimeRef.current
 
       if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+
+      if (event.type === 'message.start') {setTurnRunning(true)}
+
+      if (event.type === 'message.complete') {setTurnRunning(false)}
       setMessages(current => applyMessageEvent(current, event as GatewayEvent<MessagePayload>, activeProfileRef.current))
     }))
 
     const unsubscribeTitle = gateway.on('session.title', () => { void refreshSessions(gateway) })
 
     void gateway.connect().then(async () => {
-      const [nextSessions, nextProfiles] = await Promise.all([refreshSessions(gateway), loadProfiles(gateway)])
+      const [nextSessions, nextProfiles, commandCatalog] = await Promise.all([
+        refreshSessions(gateway),
+        loadProfiles(gateway),
+        gateway.request<SlashCatalog>('commands.catalog', {})
+      ])
 
       if (!active) {return}
       setProfiles(nextProfiles)
+      setSlashSuggestions(filterSlashCommands(commandCatalog))
       setConnection('connected')
       setConnectionMessage(`Live gateway connected · gateway.ready ${readyReceived ? 'received' : 'pending'} · ${nextSessions.length} sessions`)
 
@@ -177,7 +191,79 @@ export function App() {
     }
   }
 
+  const handleInterrupt = async () => {
+    const gateway = gatewayRef.current
+    const runtimeId = activeRuntimeRef.current
+
+    if (!gateway || !runtimeId) {return}
+
+    try {
+      await gateway.request('session.interrupt', { session_id: runtimeId })
+      setTurnRunning(false)
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : 'Could not stop response')
+    }
+  }
+
+  const handleSubmit = async () => {
+    const gateway = gatewayRef.current
+    const runtimeId = activeRuntimeRef.current
+    const input = draft.trim()
+
+    if (!gateway || !runtimeId || !input || turnRunning) {return}
+
+    if (['/new', '/reset'].includes(input.toLowerCase())) {
+      setDraft('')
+      await handleCreate()
+
+      return
+    }
+
+    if (['/stop', '/interrupt'].includes(input.toLowerCase())) {
+      setDraft('')
+      await handleInterrupt()
+
+      return
+    }
+
+    const plainPrompt = !input.startsWith('/')
+    setDraft('')
+    setSessionError(null)
+
+    if (plainPrompt) {
+      setMessages(current => appendLocalMessage(current, 'user', input))
+      setTurnRunning(true)
+    }
+
+    try {
+      const result = await runComposerInput(gateway, runtimeId, input)
+
+      if (result.kind === 'submitted') {
+        if (!plainPrompt) {setMessages(current => appendLocalMessage(current, 'user', result.displayText))}
+        setTurnRunning(result.status === 'streaming')
+
+        if (result.status !== 'streaming') {
+          setMessages(current => appendLocalMessage(current, 'system', input, `Gateway status: ${result.status}`))
+        }
+      } else if (result.kind === 'output') {
+        setMessages(current => appendLocalMessage(current, 'system', input, result.text))
+      } else {
+        setDraft(result.text)
+      }
+    } catch (error) {
+      setTurnRunning(false)
+      const message = error instanceof Error ? error.message : 'Could not send message'
+      setSessionError(message)
+      setMessages(current => appendLocalMessage(current, 'system', input, `Error: ${message}`))
+    }
+  }
+
   const activeSession = sessions.find(session => session.id === activeStoredId)
+  const slashQuery = draft.split(/\s/, 1)[0]?.toLowerCase() ?? ''
+
+  const visibleSlashSuggestions = draft.startsWith('/')
+    ? slashSuggestions.filter(item => item.command.toLowerCase().startsWith(slashQuery)).slice(0, 8)
+    : []
 
   return (
     <main className="chat-shell">
@@ -252,6 +338,15 @@ export function App() {
             <div className="empty-state">{activeSession ? 'No messages in this session yet.' : 'Choose a session to view its history.'}</div>
           )}
         </div>
+        <MessageComposer
+          busy={turnRunning}
+          disabled={connection !== 'connected' || !activeRuntimeId || loadingHistory}
+          draft={draft}
+          onChange={setDraft}
+          onInterrupt={() => void handleInterrupt()}
+          onSubmit={() => void handleSubmit()}
+          suggestions={visibleSlashSuggestions}
+        />
       </section>
     </main>
   )

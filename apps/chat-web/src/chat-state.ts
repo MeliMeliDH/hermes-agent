@@ -107,6 +107,29 @@ export function historyToBubbles(history: GatewayHistoryMessage[], profileName: 
   })
 }
 
+export function appendLocalMessage(
+  messages: MessageBubbleModel[],
+  role: 'system' | 'user',
+  displayText: string,
+  body = displayText,
+  now: () => number = () => Date.now() / 1000
+): MessageBubbleModel[] {
+  const text = role === 'system' && displayText !== body ? `${displayText}\n${body}` : body
+
+  return [
+    ...messages,
+    {
+      id: `local-${role}-${now()}-${messages.length}`,
+      interim: false,
+      role,
+      senderName: role === 'user' ? 'You' : 'Hermes',
+      streaming: false,
+      text,
+      timestamp: now()
+    }
+  ]
+}
+
 function findStreamingIndex(messages: MessageBubbleModel[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === 'assistant' && messages[index]?.streaming) {return index}

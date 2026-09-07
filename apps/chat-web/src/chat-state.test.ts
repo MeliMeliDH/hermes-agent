@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyMessageEvent, historyToBubbles } from './chat-state'
+import { appendLocalMessage, applyMessageEvent, historyToBubbles } from './chat-state'
 
 const now = () => 1_700_000_000
 
@@ -32,6 +32,18 @@ describe('historyToBubbles', () => {
       senderName: 'Researcher',
       text: 'Findings ready.'
     })
+  })
+})
+
+describe('appendLocalMessage', () => {
+  it('adds an optimistic user echo and system command output with stable roles', () => {
+    let bubbles = appendLocalMessage([], 'user', 'hello', 'hello', now)
+    bubbles = appendLocalMessage(bubbles, 'system', '/status', 'Session is healthy.', now)
+
+    expect(bubbles).toMatchObject([
+      { role: 'user', senderName: 'You', text: 'hello', streaming: false },
+      { role: 'system', senderName: 'Hermes', text: '/status\nSession is healthy.', streaming: false }
+    ])
   })
 })
 
