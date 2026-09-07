@@ -5,6 +5,14 @@
   overflow: hidden;
 }
 
+.chat-shell[data-sidebar-collapsed='true'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.chat-shell[data-sidebar-collapsed='true'] .session-sidebar {
+  display: none;
+}
+
 .session-sidebar {
   background: var(--color-bg-subtle);
   border-right: var(--border-width) solid var(--color-border);
@@ -185,6 +193,30 @@
   gap: var(--space-4);
   min-height: var(--space-8);
   padding: var(--space-3) var(--space-5);
+}
+
+.conversation-title {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.conversation-title > div {
+  min-width: 0;
+}
+
+.sidebar-toggle {
+  background: transparent;
+  color: var(--color-text-muted);
+  height: var(--space-6);
+  padding: 0;
+  width: var(--space-6);
+}
+
+.sidebar-toggle:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-text);
 }
 
 .profile-pill,

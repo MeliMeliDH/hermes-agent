@@ -9,6 +9,7 @@ import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './ide
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { createSession, deleteSession, openSession, type SessionRow } from './sessions'
+import { loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
 interface SessionListResult {
   sessions?: SessionRow[]
@@ -50,6 +51,7 @@ export function App() {
   const [draft, setDraft] = useState('')
   const [turnRunning, setTurnRunning] = useState(false)
   const [slashSuggestions, setSlashSuggestions] = useState<SlashSuggestion[]>([])
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const gatewayRef = useRef<ChatGatewayClient | null>(null)
   const runtimesRef = useRef(new Map<string, string>())
   const activeRuntimeRef = useRef<string | null>(null)
@@ -258,6 +260,15 @@ export function App() {
     }
   }
 
+  const toggleSidebar = () => {
+    setSidebarCollapsed(current => {
+      const next = !current
+      persistSidebarCollapsed(next)
+
+      return next
+    })
+  }
+
   const activeSession = sessions.find(session => session.id === activeStoredId)
   const slashQuery = draft.split(/\s/, 1)[0]?.toLowerCase() ?? ''
 
@@ -266,8 +277,8 @@ export function App() {
     : []
 
   return (
-    <main className="chat-shell">
-      <aside className="session-sidebar">
+    <main className="chat-shell" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
+      <aside className="session-sidebar" id="session-sidebar">
         <div className="sidebar-heading">
           <div>
             <p className="eyebrow">Hermes Chat</p>
@@ -309,9 +320,19 @@ export function App() {
 
       <section className="conversation" data-runtime-session={activeRuntimeId ?? ''}>
         <header className="conversation-heading">
-          <div>
-            <p className="eyebrow">Conversation</p>
-            <h2>{activeSession ? sessionTitle(activeSession) : 'Select a session'}</h2>
+          <div className="conversation-title">
+            <button
+              aria-controls="session-sidebar"
+              aria-expanded={!sidebarCollapsed}
+              aria-label={sidebarCollapsed ? 'Show sessions' : 'Hide sessions'}
+              className="button sidebar-toggle"
+              onClick={toggleSidebar}
+              type="button"
+            >{sidebarCollapsed ? '☰' : '←'}</button>
+            <div>
+              <p className="eyebrow">Conversation</p>
+              <h2>{activeSession ? sessionTitle(activeSession) : 'Select a session'}</h2>
+            </div>
           </div>
           {activeSession && <span className="profile-pill">{displayNameForProfile(activeSession.profile || 'default')}</span>}
         </header>
