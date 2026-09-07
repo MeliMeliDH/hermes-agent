@@ -2,6 +2,7 @@ import type { GatewayEvent } from '@hermes/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { applyMessageEvent, historyToBubbles, type MessageBubbleModel, type MessagePayload } from './chat-state'
+import { HERMES_BASE_PATH } from './auth'
 import { ChatGatewayClient } from './gateway'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
 import { MessageBubble } from './MessageBubble'
@@ -17,7 +18,12 @@ type ConnectionState = 'connected' | 'connecting' | 'error'
 // gateway concept of a "user avatar" (profiles.get_asset only covers
 // bot/agent profiles), so this ships as a bundled static asset rather than
 // wiring up a new RPC surface for a single-user local deployment.
-const USER_IDENTITY: ProfileIdentity = { avatar: '/user-avatar.png', displayName: 'You', isDefault: false, name: 'you' }
+const USER_IDENTITY: ProfileIdentity = {
+  avatar: `${HERMES_BASE_PATH}/user-avatar.png`,
+  displayName: 'You',
+  isDefault: false,
+  name: 'you'
+}
 
 function sessionTitle(session: SessionRow): string {
   return session.title?.trim() || session.preview?.trim() || 'Untitled session'
