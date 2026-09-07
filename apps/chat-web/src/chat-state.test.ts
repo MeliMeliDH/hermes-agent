@@ -30,7 +30,10 @@ describe('historyToBubbles', () => {
     )
 
     expect(bubbles[0]).toMatchObject({
-      attachments: [{ kind: 'image', name: 'photo.png', url: 'data:image/png;base64,aGVsbG8=' }],
+      attachments: [
+        { kind: 'image', name: 'photo.png', mediaPath: '/tmp/photo.png' },
+        { kind: 'image', name: 'Attached image', url: 'data:image/png;base64,aGVsbG8=' }
+      ],
       role: 'user',
       text: 'Caption'
     })

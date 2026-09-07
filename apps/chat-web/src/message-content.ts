@@ -2,6 +2,7 @@ export interface MessageAttachment {
   kind: 'file' | 'image'
   name: string
   url?: string
+  mediaPath?: string
 }
 
 export interface ExtractedMessageContent {
@@ -10,6 +11,10 @@ export interface ExtractedMessageContent {
 }
 
 const DATA_IMAGE_RE = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi
+// Local filesystem paths (this deployment's actual upload format) -- these
+// can't be loaded directly by the browser; MessageBubble resolves them via
+// GET /api/media (see hermes_cli/web_routers/files.py) instead of treating
+// this as a normal `url`.
 const IMAGE_LABEL_RE = /\[Image attached at:\s*([^\]]+)\]/gi
 const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi
 const HTML_IMAGE_RE = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi
@@ -58,7 +63,13 @@ export function extractMessageContent(rawText: string): ExtractedMessageContent 
   let text = rawText
 
   text = text.replace(IMAGE_LABEL_RE, (_match, path: string) => {
-    imageLabel = basename(path)
+    const trimmedPath = path.trim()
+
+    if (/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(trimmedPath)) {
+      attachments.push({ kind: 'image', mediaPath: trimmedPath, name: basename(trimmedPath) })
+    } else {
+      attachments.push({ kind: 'file', mediaPath: trimmedPath, name: basename(trimmedPath) })
+    }
 
     return ''
   })

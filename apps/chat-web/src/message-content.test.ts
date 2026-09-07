@@ -3,14 +3,26 @@ import { describe, expect, it } from 'vitest'
 import { extractMessageContent } from './message-content'
 
 describe('extractMessageContent', () => {
-  it('extracts the real session.history data-image shape and removes its raw source', () => {
+  it('extracts a real local-path image label (this deployment\'s actual upload shape) as a mediaPath attachment', () => {
+    const result = extractMessageContent(
+      'Here is a screenshot\n[Image attached at: /home/hermes/.hermes/cache/images/img_c73b3fff60f0.png]\n[screenshot]'
+    )
+
+    expect(result.text).toBe('Here is a screenshot\n\n[screenshot]')
+    expect(result.attachments).toEqual([
+      { kind: 'image', name: 'img_c73b3fff60f0.png', mediaPath: '/home/hermes/.hermes/cache/images/img_c73b3fff60f0.png' }
+    ])
+  })
+
+  it('extracts an inline base64 data-image payload alongside a local-path label as two attachments', () => {
     const result = extractMessageContent(
       'Before I test\n[Image attached at: /home/hermes/.hermes/cache/images/photo.png]\ndata:image/png;base64,aGVsbG8='
     )
 
     expect(result.text).toBe('Before I test')
     expect(result.attachments).toEqual([
-      { kind: 'image', name: 'photo.png', url: 'data:image/png;base64,aGVsbG8=' }
+      { kind: 'image', name: 'photo.png', mediaPath: '/home/hermes/.hermes/cache/images/photo.png' },
+      { kind: 'image', name: 'Attached image', url: 'data:image/png;base64,aGVsbG8=' }
     ])
   })
 

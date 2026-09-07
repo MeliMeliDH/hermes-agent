@@ -1,5 +1,6 @@
-import { createElement, Fragment, type ReactNode } from 'react'
+import { createElement, Fragment, type ReactNode, useEffect, useState } from 'react'
 
+import { HERMES_BASE_PATH } from './auth'
 import type { MessageBubbleModel } from './chat-state'
 import { initialsForName, type ProfileIdentity } from './identity'
 import { type MessageAttachment, safeMediaUrl } from './message-content'
@@ -75,6 +76,10 @@ function AttachmentList({ attachments = [] }: { attachments?: MessageAttachment[
   return (
     <div className="message-attachments">
       {attachments.map((attachment, index) => {
+        if (attachment.mediaPath) {
+          return <MediaPathAttachment attachment={attachment} key={`${attachment.mediaPath}-${index}`} />
+        }
+
         if (attachment.kind === 'image' && attachment.url) {
           return <img alt={attachment.name} className="message-image" key={`${attachment.url}-${index}`} loading="lazy" src={attachment.url} />
         }
@@ -89,6 +94,52 @@ function AttachmentList({ attachments = [] }: { attachments?: MessageAttachment[
       })}
     </div>
   )
+}
+
+/** Resolves a server-local path (this deployment's real upload format, e.g.
+ * "[Image attached at: /home/.../img_x.png]") via GET /api/media, which
+ * returns a base64 data URL for auth-gated, path-restricted files under the
+ * agent's own media roots (hermes_cli/web_routers/files.py). The browser
+ * cannot read an arbitrary local filesystem path directly. */
+function MediaPathAttachment({ attachment }: { attachment: MessageAttachment }) {
+  const [dataUrl, setDataUrl] = useState<string | undefined>()
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let active = true
+
+    setDataUrl(undefined)
+    setFailed(false)
+
+    const headers = new Headers()
+
+    if (!window.__HERMES_AUTH_REQUIRED__ && window.__HERMES_SESSION_TOKEN__) {
+      headers.set('X-Hermes-Session-Token', window.__HERMES_SESSION_TOKEN__)
+    }
+
+    fetch(`${HERMES_BASE_PATH}/api/media?path=${encodeURIComponent(attachment.mediaPath ?? '')}`, { credentials: 'include', headers })
+      .then(response => { if (!response.ok) {throw new Error(`HTTP ${response.status}`)}
+
+ return response.json() })
+      .then((body: { data_url?: string }) => { if (active && body.data_url) {setDataUrl(body.data_url)} else if (active) {setFailed(true)} })
+      .catch(() => { if (active) {setFailed(true)} })
+
+    return () => { active = false }
+  }, [attachment.mediaPath])
+
+  if (failed) {
+    return <span className="message-file">{`${attachment.kind === 'image' ? 'Image' : 'File'} · ${attachment.name} (unavailable)`}</span>
+  }
+
+  if (!dataUrl) {
+    return <span className="message-file message-file--loading">{`Loading ${attachment.name}…`}</span>
+  }
+
+  if (attachment.kind === 'image') {
+    return <img alt={attachment.name} className="message-image" loading="lazy" src={dataUrl} />
+  }
+
+  return <a className="message-file" download={attachment.name} href={dataUrl}>{`File · ${attachment.name}`}</a>
 }
 
 function RenderedContent({ message }: { message: MessageBubbleModel }) {
