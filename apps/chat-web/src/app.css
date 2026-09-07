@@ -1,37 +1,78 @@
-.connection-shell {
+.chat-shell {
   display: grid;
-  min-height: 100vh;
-  place-items: center;
+  grid-template-columns: minmax(18rem, 24vw) minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.session-sidebar {
+  background: var(--color-bg-subtle);
+  border-right: var(--border-width) solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   padding: var(--space-4);
 }
 
-.connection-card {
-  width: min(100%, var(--max-width-content));
+.sidebar-heading,
+.conversation-heading,
+.message-meta,
+.session-row,
+.session-actions {
+  align-items: center;
+  display: flex;
+}
+
+.sidebar-heading,
+.conversation-heading,
+.session-row {
+  justify-content: space-between;
+}
+
+.sidebar-heading {
+  gap: var(--space-3);
+}
+
+.sidebar-heading h1,
+.conversation-heading h2 {
+  font-size: var(--font-size-xl);
+  margin: 0;
 }
 
 .eyebrow {
   color: var(--color-accent);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
   letter-spacing: 0.08em;
+  margin-bottom: var(--space-1);
   text-transform: uppercase;
+}
+
+.new-session-button {
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xl);
+  height: var(--space-7);
+  padding: 0;
+  width: var(--space-7);
 }
 
 .connection-status {
   align-items: center;
-  background: var(--color-bg-subtle);
+  background: var(--color-surface);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-md);
   display: flex;
+  font-size: var(--font-size-xs);
   gap: var(--space-2);
-  padding: var(--space-3);
+  margin: var(--space-4) 0;
+  padding: var(--space-2) var(--space-3);
 }
 
 .status-dot {
   background: var(--color-text-muted);
   border-radius: var(--radius-full);
+  flex: 0 0 var(--space-2);
   height: var(--space-2);
-  width: var(--space-2);
 }
 
 .connection-status[data-state='connecting'] .status-dot {
@@ -42,11 +83,300 @@
   background: var(--color-text);
 }
 
+.connection-status[data-state='error'],
+.session-error,
+.message-error {
+  color: var(--color-danger);
+}
+
 .connection-status[data-state='error'] {
   border-color: var(--color-danger);
-  color: var(--color-danger);
 }
 
 .connection-status[data-state='error'] .status-dot {
   background: var(--color-danger);
+}
+
+.session-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.session-row {
+  background: transparent;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  cursor: pointer;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  text-align: left;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  width: 100%;
+}
+
+.session-row:hover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.session-row[data-active='true'] {
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent);
+}
+
+.session-copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.session-copy strong,
+.session-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-copy small {
+  color: var(--color-text-muted);
+}
+
+.session-actions {
+  align-self: stretch;
+  color: var(--color-text-muted);
+  flex-direction: column;
+  font-size: var(--font-size-xs);
+  justify-content: space-between;
+}
+
+.delete-session {
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  display: grid;
+  font-size: var(--font-size-lg);
+  height: var(--space-5);
+  place-items: center;
+  width: var(--space-5);
+}
+
+.delete-session:hover,
+.delete-session:focus-visible {
+  background: var(--color-surface-raised);
+  color: var(--color-danger);
+  outline: none;
+}
+
+.conversation {
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.conversation-heading {
+  background: var(--color-surface);
+  border-bottom: var(--border-width) solid var(--color-border);
+  gap: var(--space-4);
+  min-height: var(--space-8);
+  padding: var(--space-3) var(--space-5);
+}
+
+.profile-pill,
+.message-label {
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-full);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: var(--space-1) var(--space-2);
+}
+
+.session-error {
+  background: var(--color-bg-subtle);
+  border-bottom: var(--border-width) solid var(--color-danger);
+  padding: var(--space-3) var(--space-5);
+}
+
+.message-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-6) max(var(--space-5), calc((100% - var(--max-width-content)) / 2));
+}
+
+.empty-state {
+  color: var(--color-text-muted);
+  margin: auto;
+  text-align: center;
+}
+
+.message-row {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-3);
+  max-width: min(86%, var(--max-width-content));
+}
+
+.message-row--user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.message-row--assistant,
+.message-row--system {
+  align-self: flex-start;
+}
+
+.avatar {
+  align-items: center;
+  background: var(--color-surface-raised);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  color: var(--color-text);
+  display: flex;
+  flex: 0 0 var(--space-7);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  height: var(--space-7);
+  justify-content: center;
+  overflow: hidden;
+}
+
+.avatar img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.message-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.message-row--user .message-column {
+  align-items: flex-end;
+}
+
+.message-meta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  gap: var(--space-2);
+}
+
+.message-meta strong {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.message-bubble {
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  line-height: var(--line-height-relaxed);
+  overflow-wrap: anywhere;
+  padding: var(--space-3) var(--space-4);
+}
+
+.message-row--user .message-bubble {
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent);
+}
+
+.message-row--system .message-bubble {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+}
+
+.message-bubble p:last-child,
+.message-bubble ul:last-child,
+.message-bubble pre:last-child {
+  margin-bottom: 0;
+}
+
+.message-bubble p:first-child,
+.message-bubble ul:first-child,
+.message-bubble pre:first-child {
+  margin-top: 0;
+}
+
+.message-bubble pre,
+.message-bubble code {
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+}
+
+.message-bubble code {
+  padding: 0 var(--space-1);
+}
+
+.message-bubble pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: var(--space-3);
+}
+
+.message-bubble a {
+  color: var(--color-accent);
+}
+
+.streaming-caret {
+  animation: blink var(--transition-base) infinite alternate;
+  background: var(--color-accent);
+  display: inline-block;
+  height: var(--font-size-base);
+  margin-left: var(--space-1);
+  vertical-align: text-bottom;
+  width: var(--space-1);
+}
+
+.message-error {
+  border-top: var(--border-width) solid var(--color-border);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+@keyframes blink {
+  to { opacity: 0; }
+}
+
+@media (max-width: 720px) {
+  .chat-shell {
+    grid-template-columns: minmax(10rem, 38vw) minmax(0, 1fr);
+  }
+
+  .session-sidebar,
+  .message-list,
+  .conversation-heading {
+    padding: var(--space-3);
+  }
+
+  .connection-status,
+  .session-row time,
+  .session-copy small,
+  .profile-pill {
+    display: none;
+  }
+
+  .message-row {
+    max-width: 100%;
+  }
+
+  .avatar {
+    flex-basis: var(--space-6);
+    height: var(--space-6);
+  }
 }

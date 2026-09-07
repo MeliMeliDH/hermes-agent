@@ -1,71 +1,238 @@
-import { useEffect, useState } from 'react'
+import type { GatewayEvent } from '@hermes/shared'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { applyMessageEvent, historyToBubbles, type MessageBubbleModel, type MessagePayload } from './chat-state'
 import { ChatGatewayClient } from './gateway'
+import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
+import { MessageBubble } from './MessageBubble'
+import { createSession, deleteSession, openSession, type SessionRow } from './sessions'
 
 interface SessionListResult {
-  sessions?: unknown[]
+  sessions?: SessionRow[]
 }
 
-type ConnectionView =
-  | { kind: 'connecting'; message: string }
-  | { kind: 'connected'; message: string }
-  | { kind: 'error'; message: string }
+type ConnectionState = 'connected' | 'connecting' | 'error'
+
+function sessionTitle(session: SessionRow): string {
+  return session.title?.trim() || session.preview?.trim() || 'Untitled session'
+}
+
+function sessionTime(timestamp?: number): string {
+  if (!timestamp) {return ''}
+
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(timestamp * 1000)
+}
 
 export function App() {
-  const [connection, setConnection] = useState<ConnectionView>({
-    kind: 'connecting',
-    message: 'Connecting to the Hermes gateway…'
-  })
+  const [connection, setConnection] = useState<ConnectionState>('connecting')
+  const [connectionMessage, setConnectionMessage] = useState('Connecting to the Hermes gateway…')
+  const [sessions, setSessions] = useState<SessionRow[]>([])
+  const [activeStoredId, setActiveStoredId] = useState<string | null>(null)
+  const [activeRuntimeId, setActiveRuntimeId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<MessageBubbleModel[]>([])
+  const [profiles, setProfiles] = useState<Record<string, ProfileIdentity>>({})
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [sessionError, setSessionError] = useState<string | null>(null)
+  const gatewayRef = useRef<ChatGatewayClient | null>(null)
+  const runtimesRef = useRef(new Map<string, string>())
+  const activeRuntimeRef = useRef<string | null>(null)
+  const activeProfileRef = useRef('default')
+  const openGenerationRef = useRef(0)
 
-  useEffect(() => {
-    const gateway = new ChatGatewayClient()
-    let active = true
-    let readyReceived = false
+  const showSession = useCallback(async (session: SessionRow, gateway = gatewayRef.current) => {
+    if (!gateway) {return}
+    const generation = ++openGenerationRef.current
+    const profileName = session.profile || 'default'
+    setActiveStoredId(session.id)
+    activeProfileRef.current = profileName
+    setLoadingHistory(true)
+    setSessionError(null)
 
-    const unsubscribeReady = gateway.on('gateway.ready', () => {
-      readyReceived = true
-    })
+    try {
+      const opened = await openSession(gateway, session, runtimesRef.current.get(session.id))
 
-    void gateway
-      .connect()
-      .then(async () => {
-        const result = await gateway.request<SessionListResult>('session.list', { limit: 200 })
-
-        if (!active) {
-          return
-        }
-
-        const sessionCount = result.sessions?.length ?? 0
-        setConnection({
-          kind: 'connected',
-          message: `Live gateway connected · gateway.ready ${readyReceived ? 'received' : 'pending'} · ${sessionCount} sessions`
-        })
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          setConnection({
-            kind: 'error',
-            message: error instanceof Error ? error.message : 'Gateway connection failed'
-          })
-        }
-      })
-
-    return () => {
-      active = false
-      unsubscribeReady()
-      gateway.close()
+      if (generation !== openGenerationRef.current) {return}
+      runtimesRef.current.set(session.id, opened.runtimeId)
+      activeRuntimeRef.current = opened.runtimeId
+      setActiveRuntimeId(opened.runtimeId)
+      setMessages(historyToBubbles(opened.history.messages, profileName))
+    } catch (error) {
+      if (generation === openGenerationRef.current) {
+        setSessionError(error instanceof Error ? error.message : 'Could not open session')
+      }
+    } finally {
+      if (generation === openGenerationRef.current) {setLoadingHistory(false)}
     }
   }, [])
 
+  const refreshSessions = useCallback(async (gateway = gatewayRef.current) => {
+    if (!gateway) {return []}
+    const result = await gateway.request<SessionListResult>('session.list', { limit: 200 })
+    const next = result.sessions ?? []
+    setSessions(next)
+
+    return next
+  }, [])
+
+  useEffect(() => {
+    const gateway = new ChatGatewayClient()
+    gatewayRef.current = gateway
+    let active = true
+    let readyReceived = false
+
+    const unsubscribeReady = gateway.on('gateway.ready', () => { readyReceived = true })
+    const messageTypes = ['message.start', 'message.delta', 'message.interim', 'message.complete'] as const
+
+    const unsubscribeMessages = messageTypes.map(type => gateway.on(type, event => {
+      const runtimeId = activeRuntimeRef.current
+
+      if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+      setMessages(current => applyMessageEvent(current, event as GatewayEvent<MessagePayload>, activeProfileRef.current))
+    }))
+
+    const unsubscribeTitle = gateway.on('session.title', () => { void refreshSessions(gateway) })
+
+    void gateway.connect().then(async () => {
+      const [nextSessions, nextProfiles] = await Promise.all([refreshSessions(gateway), loadProfiles(gateway)])
+
+      if (!active) {return}
+      setProfiles(nextProfiles)
+      setConnection('connected')
+      setConnectionMessage(`Live gateway connected · gateway.ready ${readyReceived ? 'received' : 'pending'} · ${nextSessions.length} sessions`)
+
+      if (nextSessions[0]) {await showSession(nextSessions[0], gateway)}
+    }).catch((error: unknown) => {
+      if (!active) {return}
+      setConnection('error')
+      setConnectionMessage(error instanceof Error ? error.message : 'Gateway connection failed')
+    })
+
+    return () => {
+      active = false
+      openGenerationRef.current += 1
+      unsubscribeReady()
+      unsubscribeTitle()
+      unsubscribeMessages.forEach(unsubscribe => unsubscribe())
+      gateway.close()
+      gatewayRef.current = null
+    }
+  }, [refreshSessions, showSession])
+
+  const handleCreate = async () => {
+    const gateway = gatewayRef.current
+
+    if (!gateway) {return}
+    setSessionError(null)
+
+    try {
+      const created = await createSession(gateway)
+      const draft: SessionRow = { id: created.storedId, profile: 'default', started_at: Date.now() / 1000, title: 'New session' }
+      runtimesRef.current.set(created.storedId, created.runtimeId)
+      activeRuntimeRef.current = created.runtimeId
+      activeProfileRef.current = 'default'
+      setActiveRuntimeId(created.runtimeId)
+      setActiveStoredId(created.storedId)
+      setMessages([])
+      setSessions(current => [draft, ...current.filter(row => row.id !== draft.id)])
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : 'Could not create session')
+    }
+  }
+
+  const handleDelete = async (session: SessionRow) => {
+    const gateway = gatewayRef.current
+
+    if (!gateway || !window.confirm(`Delete “${sessionTitle(session)}”? This cannot be undone.`)) {return}
+    setSessionError(null)
+
+    try {
+      const runtimeId = runtimesRef.current.get(session.id)
+      await deleteSession(gateway, session.id, runtimeId)
+      runtimesRef.current.delete(session.id)
+      const next = sessions.filter(row => row.id !== session.id)
+      setSessions(next)
+
+      if (activeStoredId === session.id) {
+        activeRuntimeRef.current = null
+        setActiveRuntimeId(null)
+        setActiveStoredId(null)
+        setMessages([])
+
+        if (next[0]) {void showSession(next[0], gateway)}
+      }
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : 'Could not delete session')
+    }
+  }
+
+  const activeSession = sessions.find(session => session.id === activeStoredId)
+
   return (
-    <main className="connection-shell">
-      <section aria-live="polite" className="card connection-card">
-        <p className="eyebrow">Hermes Chat Web</p>
-        <h1>Structured chat client</h1>
-        <p className="text-muted">Phase 1 connection scaffold. Message UI arrives in Phase 2.</p>
-        <div className="connection-status" data-state={connection.kind}>
+    <main className="chat-shell">
+      <aside className="session-sidebar">
+        <div className="sidebar-heading">
+          <div>
+            <p className="eyebrow">Hermes Chat</p>
+            <h1>Sessions</h1>
+          </div>
+          <button aria-label="Create session" className="button button-primary new-session-button" disabled={connection !== 'connected'} onClick={() => void handleCreate()}>+</button>
+        </div>
+        <div aria-live="polite" className="connection-status" data-state={connection}>
           <span aria-hidden className="status-dot" />
-          <span>{connection.message}</span>
+          <span>{connectionMessage}</span>
+        </div>
+        <nav aria-label="Chat sessions" className="session-list">
+          {sessions.map(session => (
+            <button
+              className="session-row"
+              data-active={session.id === activeStoredId ? 'true' : 'false'}
+              key={session.id}
+              onClick={() => void showSession(session)}
+              type="button"
+            >
+              <span className="session-copy">
+                <strong>{sessionTitle(session)}</strong>
+                <small>{session.preview || `${session.message_count ?? 0} messages`}</small>
+              </span>
+              <span className="session-actions">
+                <time>{sessionTime(session.started_at)}</time>
+                <span
+                  aria-label={`Delete ${sessionTitle(session)}`}
+                  className="delete-session"
+                  onClick={event => { event.stopPropagation(); void handleDelete(session) }}
+                  role="button"
+                  tabIndex={0}
+                >×</span>
+              </span>
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      <section className="conversation" data-runtime-session={activeRuntimeId ?? ''}>
+        <header className="conversation-heading">
+          <div>
+            <p className="eyebrow">Conversation</p>
+            <h2>{activeSession ? sessionTitle(activeSession) : 'Select a session'}</h2>
+          </div>
+          {activeSession && <span className="profile-pill">{displayNameForProfile(activeSession.profile || 'default')}</span>}
+        </header>
+
+        {sessionError && <div className="session-error" role="alert">{sessionError}</div>}
+        <div aria-busy={loadingHistory} aria-live="polite" className="message-list">
+          {loadingHistory ? (
+            <div className="empty-state">Loading session history…</div>
+          ) : messages.length ? (
+            messages.map(message => (
+              <MessageBubble
+                identity={message.profileName ? profiles[message.profileName] ?? profiles[message.profileName.toLowerCase()] : undefined}
+                key={message.id}
+                message={message}
+              />
+            ))
+          ) : (
+            <div className="empty-state">{activeSession ? 'No messages in this session yet.' : 'Choose a session to view its history.'}</div>
+          )}
         </div>
       </section>
     </main>
