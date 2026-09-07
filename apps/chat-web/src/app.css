@@ -209,6 +209,7 @@
   flex-direction: column;
   gap: var(--space-5);
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: var(--space-6) max(var(--space-5), calc((100% - var(--max-width-content)) / 2));
 }
@@ -224,6 +225,7 @@
   display: flex;
   gap: var(--space-3);
   max-width: min(86%, var(--max-width-content));
+  min-width: 0;
 }
 
 .message-row--user {
