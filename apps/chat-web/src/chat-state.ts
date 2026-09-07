@@ -18,6 +18,9 @@ export interface GatewayHistoryMessage {
   row_id?: number
   text?: unknown
   timestamp?: number
+  tool_call_id?: null | string
+  tool_calls?: unknown
+  tool_name?: string
 }
 
 export interface ToolCallModel {
@@ -30,14 +33,33 @@ export interface ToolCallModel {
   toolId: string
 }
 
+export interface ClarifyQuestionModel {
+  choices?: string[]
+  multiSelect: boolean
+  qid: string
+  question: string
+}
+
+export interface ClarifyAnswer {
+  answer: string
+  questionId: string
+}
+
+export type InputResponse = ClarifyAnswer[] | string
+
 export interface InputRequestModel {
+  answers?: Record<string, unknown>
   choices?: string[]
   command?: string
   description?: string
+  expired?: boolean
   kind: 'approval' | 'clarify'
+  multiSelect?: boolean
   question: string
+  questions?: ClarifyQuestionModel[]
   requestId: string
   resolved?: boolean
+  response?: InputResponse
 }
 
 export interface MessageBubbleModel {
@@ -62,6 +84,7 @@ export interface MessageBubbleModel {
 
 export interface ToolPayload {
   args?: unknown
+  context?: unknown
   name?: string
   output?: unknown
   preview?: unknown
@@ -146,67 +169,128 @@ function assistantBubble(
   }
 }
 
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function parseMaybeJson(value: unknown): unknown {
+  if (typeof value !== 'string') {return value}
+
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
+function storedToolCall(call: unknown, fallbackId: string): ToolCallModel {
+  const row = recordFromUnknown(call) ?? {}
+  const fn = recordFromUnknown(row.function)
+  const input = recordFromUnknown(row.input)
+  const rawArgs = fn?.arguments ?? row.arguments ?? row.args ?? row.input
+
+  return {
+    ...(rawArgs !== undefined ? { args: parseMaybeJson(rawArgs) } : {}),
+    name: String(row.name ?? row.tool_name ?? fn?.name ?? input?.name ?? 'tool'),
+    status: 'running',
+    toolId: String(row.id ?? row.tool_call_id ?? fallbackId)
+  }
+}
+
 export function historyToBubbles(history: GatewayHistoryMessage[], profileName: string): MessageBubbleModel[] {
-  return history.flatMap((message, index) => {
+  const bubbles: MessageBubbleModel[] = []
+
+  history.forEach((message, index) => {
     const id = message.row_id === undefined ? `history-${index}` : `history-row-${message.row_id}`
     const timestamp = typeof message.timestamp === 'number' ? message.timestamp : 0
 
     if (message.role === 'tool') {
-      return [toolRow({
-        ...(message.args !== undefined ? { args: message.args } : {}),
-        ...(message.context !== undefined ? { preview: message.context } : {}),
-        name: message.name?.trim() || 'tool',
-        status: 'complete',
-        toolId: id
-      }, timestamp)]
+      const toolId = message.tool_call_id?.trim() || id
+      const name = message.tool_name?.trim() || message.name?.trim() || 'tool'
+      const match = bubbles.findLastIndex(bubble => bubble.tool?.toolId === toolId || (!message.tool_call_id && bubble.tool?.name === name))
+      const result = parseMaybeJson(message.content ?? message.text ?? message.context ?? '')
+      const preview = message.context
+
+      if (match >= 0) {
+        const bubble = bubbles[match]!
+        const tool = bubble.tool!
+        bubbles[match] = {
+          ...bubble,
+          streaming: false,
+          tool: {
+            ...tool,
+            ...(message.args !== undefined ? { args: parseMaybeJson(message.args) } : {}),
+            ...(preview !== undefined ? { preview } : {}),
+            name,
+            result,
+            status: 'complete'
+          }
+        }
+      } else {
+        bubbles.push(toolRow({
+          ...(message.args !== undefined ? { args: parseMaybeJson(message.args) } : {}),
+          ...(preview !== undefined ? { preview } : {}),
+          name,
+          result,
+          status: 'complete',
+          toolId
+        }, timestamp))
+      }
+
+      return
     }
 
     const content = extractMessageContent(historyText(message).trim())
     const text = content.text
     const reasoning = historyReasoning(message)
 
-    if ((!text && content.attachments.length === 0 && !reasoning) || message.display_kind === 'hidden') {return []}
+    if (message.display_kind !== 'hidden') {
+      if (message.role === 'user' && (text || content.attachments.length > 0)) {
+        const delivery = AGENT_MESSAGE_RE.exec(text)
 
-    if (message.role === 'user') {
-      const delivery = AGENT_MESSAGE_RE.exec(text)
-
-      if (delivery) {
-        const senderName = (delivery[1] || delivery[3] || 'agent').trim()
-        const senderProfile = (delivery[2] || delivery[3] || senderName).trim()
-
-        return [{
-          ...assistantBubble(id, senderProfile, timestamp, (delivery[4] || '').trim(), false, content.attachments),
-          senderName
-        }]
+        if (delivery) {
+          const senderName = (delivery[1] || delivery[3] || 'agent').trim()
+          const senderProfile = (delivery[2] || delivery[3] || senderName).trim()
+          bubbles.push({
+            ...assistantBubble(id, senderProfile, timestamp, (delivery[4] || '').trim(), false, content.attachments),
+            senderName
+          })
+        } else {
+          bubbles.push({
+            ...(content.attachments.length ? { attachments: content.attachments } : {}),
+            id,
+            interim: false,
+            role: 'user',
+            senderName: 'You',
+            streaming: false,
+            text,
+            timestamp
+          })
+        }
+      } else if (message.role === 'assistant' && (text || content.attachments.length > 0 || reasoning)) {
+        bubbles.push({ ...assistantBubble(id, profileName, timestamp, text, false, content.attachments), ...(reasoning ? { reasoning } : {}) })
+      } else if (message.role !== 'assistant' && message.role !== 'user' && (text || content.attachments.length > 0 || reasoning)) {
+        bubbles.push({
+          ...(content.attachments.length ? { attachments: content.attachments } : {}),
+          id,
+          interim: false,
+          role: 'system',
+          senderName: 'Hermes',
+          streaming: false,
+          text,
+          timestamp
+        })
       }
-
-      return [{
-        ...(content.attachments.length ? { attachments: content.attachments } : {}),
-        id,
-        interim: false,
-        role: 'user' as const,
-        senderName: 'You',
-        streaming: false,
-        text,
-        timestamp
-      }]
     }
 
-    if (message.role === 'assistant') {
-      return [{ ...assistantBubble(id, profileName, timestamp, text, false, content.attachments), ...(reasoning ? { reasoning } : {}) }]
+    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+      message.tool_calls.forEach((call, callIndex) => {
+        bubbles.push(toolRow(storedToolCall(call, `${id}-tool-${callIndex}`), timestamp))
+      })
     }
-
-    return [{
-      ...(content.attachments.length ? { attachments: content.attachments } : {}),
-      id,
-      interim: false,
-      role: 'system' as const,
-      senderName: 'Hermes',
-      streaming: false,
-      text,
-      timestamp
-    }]
   })
+
+  return bubbles
 }
 
 export function appendLocalMessage(
@@ -254,10 +338,13 @@ function toolRow(tool: ToolCallModel, timestamp: number): MessageBubbleModel {
 }
 
 export interface InputRequestPayload {
+  answers?: unknown
   choices?: unknown
   command?: unknown
   description?: unknown
+  multi_select?: unknown
   question?: unknown
+  questions?: unknown
   request_id?: unknown
 }
 
@@ -274,13 +361,40 @@ export function applyInputRequestEvent(
   const kind = event.type === 'approval.request' ? 'approval' : 'clarify'
   const description = typeof payload.description === 'string' ? payload.description : ''
   const command = typeof payload.command === 'string' ? payload.command : ''
-  const question = typeof payload.question === 'string' ? payload.question : description || 'Approval required'
+
+  const questions = Array.isArray(payload.questions)
+    ? payload.questions.flatMap(item => {
+        const row = recordFromUnknown(item)
+
+        if (!row || typeof row.qid !== 'string' || typeof row.question !== 'string') {return []}
+
+        const itemChoices = Array.isArray(row.choices)
+          ? row.choices.filter((choice): choice is string => typeof choice === 'string')
+          : undefined
+
+        return [{
+          ...(itemChoices?.length ? { choices: itemChoices } : {}),
+          multiSelect: row.multi_select === true,
+          qid: row.qid,
+          question: row.question
+        }]
+      })
+    : undefined
+
+  const question = typeof payload.question === 'string'
+    ? payload.question
+    : questions?.length ? 'Hermes needs your input' : description || 'Approval required'
+
   const choices = Array.isArray(payload.choices) ? payload.choices.filter((choice): choice is string => typeof choice === 'string') : undefined
+  const answers = recordFromUnknown(payload.answers)
 
   const inputRequest: InputRequestModel = {
+    ...(answers ? { answers } : {}),
     ...(choices?.length ? { choices } : {}),
     ...(command ? { command } : {}),
     ...(description ? { description } : {}),
+    ...(kind === 'clarify' && payload.multi_select === true ? { multiSelect: true } : {}),
+    ...(questions?.length ? { questions } : {}),
     kind,
     question,
     requestId
@@ -306,9 +420,31 @@ export function applyInputRequestEvent(
   return next
 }
 
-export function resolveInputRequest(messages: MessageBubbleModel[], requestId: string): MessageBubbleModel[] {
+export interface InputRequestExpirePayload {
+  request_id?: unknown
+}
+
+export function applyInputRequestExpireEvent(
+  messages: MessageBubbleModel[],
+  event: Pick<GatewayEvent<InputRequestExpirePayload>, 'payload' | 'type'>
+): MessageBubbleModel[] {
+  if (!['clarify.expire', 'approval.expire'].includes(event.type)) {return messages}
+  const requestId = typeof event.payload?.request_id === 'string' ? event.payload.request_id : ''
+
+  if (!requestId) {return messages}
+
   return messages.map(message => message.inputRequest?.requestId === requestId
-    ? { ...message, inputRequest: { ...message.inputRequest, resolved: true } }
+    ? { ...message, inputRequest: { ...message.inputRequest, expired: true, resolved: true } }
+    : message)
+}
+
+export function resolveInputRequest(
+  messages: MessageBubbleModel[],
+  requestId: string,
+  response?: InputResponse
+): MessageBubbleModel[] {
+  return messages.map(message => message.inputRequest?.requestId === requestId
+    ? { ...message, inputRequest: { ...message.inputRequest, ...(response !== undefined ? { response } : {}), resolved: true } }
     : message)
 }
 
@@ -322,7 +458,7 @@ export function applyReasoningEvent(
   profileName: string,
   now: () => number = () => Date.now() / 1000
 ): MessageBubbleModel[] {
-  if (!['thinking.delta', 'reasoning.delta'].includes(event.type)) {return messages}
+  if (!['thinking.delta', 'reasoning.delta', 'reasoning.available'].includes(event.type)) {return messages}
   const delta = event.payload?.text ?? ''
 
   if (!delta) {return messages}
@@ -348,20 +484,31 @@ export function applyToolEvent(
   if (!['tool.start', 'tool.progress', 'tool.complete'].includes(event.type)) {return messages}
 
   const payload = event.payload ?? {}
-  const toolId = typeof payload.tool_id === 'string' && payload.tool_id ? payload.tool_id : `${payload.name ?? 'tool'}-${now()}`
-  const index = messages.findIndex(message => message.tool?.toolId === toolId)
+  const suppliedToolId = typeof payload.tool_id === 'string' && payload.tool_id ? payload.tool_id : undefined
+  let index = suppliedToolId ? messages.findIndex(message => message.tool?.toolId === suppliedToolId) : -1
+
+  if (!suppliedToolId && event.type === 'tool.progress') {
+    if (typeof payload.name !== 'string' || !payload.preview) {return messages}
+    index = messages.findIndex(message => message.tool?.status === 'running' && message.tool.name === payload.name)
+
+    if (index < 0) {return messages}
+  }
+
+  if (!suppliedToolId && event.type !== 'tool.progress') {return messages}
   const previous = index >= 0 ? messages[index]!.tool : undefined
+  const toolId = suppliedToolId ?? previous!.toolId
   const progress = event.type === 'tool.progress' ? payload : previous?.progress
   const result = event.type === 'tool.complete' ? (payload.result ?? payload.output) : previous?.result
+  const preview = event.type === 'tool.start' ? payload.context : previous?.preview
 
   const tool: ToolCallModel = {
     ...(previous ?? {}),
     ...(payload.args !== undefined ? { args: payload.args } : {}),
-    ...(payload.preview !== undefined ? { preview: payload.preview } : {}),
+    ...(preview !== undefined ? { preview } : {}),
     ...(progress !== undefined ? { progress } : {}),
     ...(result !== undefined ? { result } : {}),
     name: typeof payload.name === 'string' ? payload.name : previous?.name ?? 'tool',
-    status: event.type === 'tool.complete' ? payload.status ?? 'complete' : 'running',
+    status: event.type === 'tool.complete' ? 'complete' : 'running',
     toolId
   }
 

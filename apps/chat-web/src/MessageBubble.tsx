@@ -1,14 +1,14 @@
 import { createElement, Fragment, type ReactNode, useEffect, useState } from 'react'
 
 import { HERMES_BASE_PATH } from './auth'
-import type { InputRequestModel, MessageBubbleModel } from './chat-state'
+import type { ClarifyQuestionModel, InputRequestModel, InputResponse, MessageBubbleModel } from './chat-state'
 import { initialsForName, type ProfileIdentity } from './identity'
 import { type MessageAttachment, safeMediaUrl } from './message-content'
 
 interface MessageBubbleProps {
   identity?: ProfileIdentity
   message: MessageBubbleModel
-  onInputResponse?: (request: InputRequestModel, response: string) => Promise<void>
+  onInputResponse?: (request: InputRequestModel, response: InputResponse) => Promise<void>
 }
 
 const INLINE_MARKDOWN = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g
@@ -174,52 +174,206 @@ function ToolCall({ tool }: { tool: NonNullable<MessageBubbleModel['tool']> }) {
   )
 }
 
+const APPROVAL_LABELS: Record<string, string> = {
+  always: 'Always allow',
+  deny: 'Reject',
+  once: 'Run once',
+  session: 'Allow for session'
+}
+
+function replayedSelections(question: ClarifyQuestionModel, answer: unknown): string[] {
+  if (typeof answer !== 'string') {return []}
+
+  if (question.multiSelect) {
+    try {
+      const parsed = JSON.parse(answer)
+
+      if (Array.isArray(parsed) && parsed.every(value => typeof value === 'string')) {return parsed}
+    } catch {
+      // Legacy scalar answers remain selectable below.
+    }
+  }
+
+  return question.choices?.includes(answer) ? [answer] : []
+}
+
 function InputPrompt({ onRespond, request }: {
-  onRespond?: (request: InputRequestModel, response: string) => Promise<void>
+  onRespond?: (request: InputRequestModel, response: InputResponse) => Promise<void>
   request: InputRequestModel
 }) {
   const [sending, setSending] = useState(false)
 
-  const respond = (response: string) => {
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => Object.fromEntries(
+    (request.questions ?? []).flatMap(question => {
+      const answer = request.answers?.[question.qid]
+
+      return typeof answer === 'string' && replayedSelections(question, answer).length === 0 ? [[question.qid, answer]] : []
+    })
+  ))
+
+  const [selections, setSelections] = useState<Record<string, string[]>>(() => Object.fromEntries(
+    (request.questions ?? []).map(question => [question.qid, replayedSelections(question, request.answers?.[question.qid])])
+  ))
+
+  const respond = (response: InputResponse) => {
     if (!onRespond || sending || request.resolved) {return}
     setSending(true)
     void onRespond(request, response).finally(() => setSending(false))
   }
 
+  const toggleChoice = (key: string, choice: string, multiSelect: boolean) => {
+    setDrafts(current => ({ ...current, [key]: '' }))
+    setSelections(current => {
+      const selected = current[key] ?? []
+
+      const next = multiSelect
+        ? selected.includes(choice) ? selected.filter(value => value !== choice) : [...selected, choice]
+        : [choice]
+
+      return { ...current, [key]: next }
+    })
+  }
+
+  const responseState = request.expired
+    ? 'Request expired.'
+    : request.response === undefined
+      ? 'Response sent.'
+      : `Response sent: ${Array.isArray(request.response)
+          ? request.response.map(item => item.answer).filter(Boolean).join(', ')
+          : APPROVAL_LABELS[request.response] ?? request.response}`
+
   if (request.kind === 'approval') {
+    const approvalChoices = request.choices?.length ? request.choices : ['once', 'deny']
+
     return (
       <section className="input-request" data-kind="approval">
         <strong>Approval required</strong>
         <p>{request.description || request.question}</p>
         {request.command && <pre><code>{request.command}</code></pre>}
-        <div className="input-request-actions">
-          <button className="button button-primary" disabled={sending || request.resolved} onClick={() => respond('once')} type="button">Run once</button>
-          <button className="button" disabled={sending || request.resolved} onClick={() => respond('deny')} type="button">Reject</button>
-        </div>
+        {request.resolved ? <p className="input-request-resolved" role="status">{responseState}</p> : (
+          <div className="input-request-actions">
+            {approvalChoices.map((choice, index) => (
+              <button
+                className={`button${index === 0 ? ' button-primary' : ''}`}
+                disabled={sending}
+                key={choice}
+                onClick={() => respond(choice)}
+                type="button"
+              >{APPROVAL_LABELS[choice] ?? choice}</button>
+            ))}
+          </div>
+        )}
       </section>
     )
   }
 
+  const questions = request.questions ?? []
+
+  if (questions.length > 0) {
+    const answerFor = (question: ClarifyQuestionModel): string => {
+      const selected = selections[question.qid] ?? []
+
+      if (selected.length > 0) {return question.multiSelect ? JSON.stringify(selected) : selected[0]!}
+
+      return (drafts[question.qid] ?? '').trim()
+    }
+
+    const allAnswered = questions.every(question => Boolean(answerFor(question)))
+
+    return (
+      <form className="input-request" data-kind="clarify" onSubmit={event => {
+        event.preventDefault()
+
+        if (allAnswered) {
+          respond(questions.map(question => ({ answer: answerFor(question), questionId: question.qid })))
+        }
+      }}>
+        <strong>Hermes needs your input</strong>
+        {questions.map(question => {
+          const hasChoices = Boolean(question.choices?.length)
+
+          return (
+            <fieldset className="input-request-question" disabled={sending || request.resolved} key={question.qid}>
+              <legend>{question.question}</legend>
+              {hasChoices && (
+                <div className="input-request-options">
+                  {question.choices!.map(choice => (
+                    <label key={choice}>
+                      <input
+                        checked={(selections[question.qid] ?? []).includes(choice)}
+                        onChange={() => toggleChoice(question.qid, choice, question.multiSelect)}
+                        type={question.multiSelect ? 'checkbox' : 'radio'}
+                      />
+                      {choice}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <input
+                aria-label={`${question.question} response`}
+                onChange={event => {
+                  setSelections(current => ({ ...current, [question.qid]: [] }))
+                  setDrafts(current => ({ ...current, [question.qid]: event.target.value }))
+                }}
+                placeholder="Type your answer…"
+                type="text"
+                value={drafts[question.qid] ?? ''}
+              />
+            </fieldset>
+          )
+        })}
+        {request.resolved
+          ? <p className="input-request-resolved" role="status">{responseState}</p>
+          : <button className="button button-primary" disabled={sending || !allAnswered} type="submit">Confirm and continue</button>}
+      </form>
+    )
+  }
+
+  const key = 'single'
+  const hasChoices = Boolean(request.choices?.length)
+  const selected = selections[key] ?? []
+  const draft = drafts[key] ?? ''
+  const answer = draft.trim() || (request.multiSelect ? (selected.length ? JSON.stringify(selected) : '') : selected[0] ?? '')
+
   return (
     <form className="input-request" data-kind="clarify" onSubmit={event => {
       event.preventDefault()
-      const answer = String(new FormData(event.currentTarget).get('answer') ?? '').trim()
 
       if (answer) {respond(answer)}
     }}>
       <strong>Hermes needs your input</strong>
       <p>{request.question}</p>
-      {request.choices?.length && (
-        <div className="input-request-actions">
-          {request.choices.map(choice => (
-            <button className="button" disabled={sending || request.resolved} key={choice} onClick={() => respond(choice)} type="button">{choice}</button>
+      {hasChoices && (
+        <div className="input-request-options">
+          {request.choices!.map(choice => (
+            <label key={choice}>
+              <input
+                checked={selected.includes(choice)}
+                disabled={sending || request.resolved}
+                onChange={() => toggleChoice(key, choice, Boolean(request.multiSelect))}
+                type={request.multiSelect ? 'checkbox' : 'radio'}
+              />
+              {choice}
+            </label>
           ))}
         </div>
       )}
-      <div className="input-request-response">
-        <input aria-label="Response" disabled={sending || request.resolved} name="answer" type="text" />
-        <button className="button button-primary" disabled={sending || request.resolved} type="submit">Respond</button>
-      </div>
+      {request.resolved ? <p className="input-request-resolved" role="status">{responseState}</p> : (
+        <div className="input-request-response">
+          <input
+            aria-label="Response"
+            disabled={sending}
+            name="answer"
+            onChange={event => {
+              setSelections(current => ({ ...current, [key]: [] }))
+              setDrafts(current => ({ ...current, [key]: event.target.value }))
+            }}
+            type="text"
+            value={draft}
+          />
+          <button className="button button-primary" disabled={sending || !answer} type="submit">Respond</button>
+        </div>
+      )}
     </form>
   )
 }

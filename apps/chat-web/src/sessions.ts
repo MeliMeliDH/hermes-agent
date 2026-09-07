@@ -1,5 +1,5 @@
 import { HERMES_BASE_PATH } from './auth'
-import type { GatewayHistoryMessage } from './chat-state'
+import type { GatewayHistoryMessage, InputRequestPayload } from './chat-state'
 import type { GatewayRequester } from './identity'
 
 export interface SessionRow {
@@ -18,12 +18,25 @@ export interface SessionHistory {
 }
 
 interface SessionRuntimeResponse {
+  pending_approval?: InputRequestPayload
+  pending_clarify?: InputRequestPayload
   session_id: string
   stored_session_id?: string
 }
 
+export interface PendingInputRequest {
+  payload: InputRequestPayload
+  type: 'approval.request' | 'clarify.request'
+}
+
+export interface RuntimeHydration {
+  pendingInputRequests: PendingInputRequest[]
+  runtimeId: string
+}
+
 export interface OpenedSession {
   history: SessionHistory
+  pendingInputRequests: PendingInputRequest[]
   runtimeId: null | string
 }
 
@@ -54,7 +67,14 @@ export async function fetchStoredSessionHistory(session: SessionRow): Promise<St
   return response.json()
 }
 
-export async function ensureSessionRuntime(gateway: GatewayRequester, session: SessionRow): Promise<string> {
+function pendingInputRequests(response: SessionRuntimeResponse): PendingInputRequest[] {
+  return [
+    ...(response.pending_approval ? [{ payload: response.pending_approval, type: 'approval.request' as const }] : []),
+    ...(response.pending_clarify ? [{ payload: response.pending_clarify, type: 'clarify.request' as const }] : [])
+  ]
+}
+
+export async function ensureSessionRuntime(gateway: GatewayRequester, session: SessionRow): Promise<RuntimeHydration> {
   const resumed = await gateway.request<SessionRuntimeResponse>('session.resume', {
     cols: 96,
     omit_messages: true,
@@ -63,7 +83,7 @@ export async function ensureSessionRuntime(gateway: GatewayRequester, session: S
     source: 'chat-web'
   })
 
-  return resumed.session_id
+  return { pendingInputRequests: pendingInputRequests(resumed), runtimeId: resumed.session_id }
 }
 
 export async function openSession(
@@ -81,14 +101,15 @@ export async function openSession(
 
     return {
       history: { count: stored.pagination?.returned ?? messages.length, messages },
+      pendingInputRequests: [],
       runtimeId: null
     }
   }
 
-  await gateway.request('session.activate', { omit_messages: true, session_id: knownRuntimeId })
+  const activated = await gateway.request<SessionRuntimeResponse>('session.activate', { omit_messages: true, session_id: knownRuntimeId })
   const history = await gateway.request<SessionHistory>('session.history', { session_id: knownRuntimeId })
 
-  return { history, runtimeId: knownRuntimeId }
+  return { history, pendingInputRequests: pendingInputRequests(activated), runtimeId: knownRuntimeId }
 }
 
 export async function createSession(gateway: GatewayRequester): Promise<{ runtimeId: string; storedId: string }> {

@@ -27,26 +27,62 @@ describe('session operations', () => {
     expect(gateway.calls).toEqual([])
   })
 
-  it('activates a known runtime before rehydrating on switch', async () => {
+  it('activates a known runtime and preserves pending prompts while rehydrating', async () => {
     const gateway = gatewayWith({
-      'session.activate': { session_id: 'runtime-1' },
+      'session.activate': {
+        pending_approval: {
+          choices: ['once', 'deny'],
+          command: 'npm publish',
+          description: 'Publish package',
+          request_id: 'approval-1'
+        },
+        session_id: 'runtime-1'
+      },
       'session.history': { count: 0, messages: [] }
     })
 
-    await openSession(gateway, { id: 'stored-1', title: 'Live chat' }, 'runtime-1')
+    const opened = await openSession(gateway, { id: 'stored-1', title: 'Live chat' }, 'runtime-1')
 
+    expect(opened.pendingInputRequests).toEqual([{
+      payload: {
+        choices: ['once', 'deny'],
+        command: 'npm publish',
+        description: 'Publish package',
+        request_id: 'approval-1'
+      },
+      type: 'approval.request'
+    }])
     expect(gateway.calls).toEqual([
       ['session.activate', { omit_messages: true, session_id: 'runtime-1' }],
       ['session.history', { session_id: 'runtime-1' }]
     ])
   })
 
-  it('resumes only when a read-only session first needs a live runtime', async () => {
-    const gateway = gatewayWith({ 'session.resume': { session_id: 'runtime-1' } })
+  it('resumes only when needed and preserves a canonical pending clarify snapshot', async () => {
+    const gateway = gatewayWith({
+      'session.resume': {
+        pending_clarify: {
+          answers: { q0: 'red' },
+          questions: [{ choices: ['red', 'blue'], multi_select: false, qid: 'q0', question: 'Color?' }],
+          request_id: 'clarify-1'
+        },
+        session_id: 'runtime-1'
+      }
+    })
 
-    const runtimeId = await ensureSessionRuntime(gateway, { id: 'stored-1', profile: 'research' })
+    const resumed = await ensureSessionRuntime(gateway, { id: 'stored-1', profile: 'research' })
 
-    expect(runtimeId).toBe('runtime-1')
+    expect(resumed).toEqual({
+      pendingInputRequests: [{
+        payload: {
+          answers: { q0: 'red' },
+          questions: [{ choices: ['red', 'blue'], multi_select: false, qid: 'q0', question: 'Color?' }],
+          request_id: 'clarify-1'
+        },
+        type: 'clarify.request'
+      }],
+      runtimeId: 'runtime-1'
+    })
     expect(gateway.calls).toEqual([
       ['session.resume', {
         cols: 96,

@@ -3,7 +3,7 @@ import { reconnectBackoffDelayMs } from '@hermes/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { HERMES_BASE_PATH } from './auth'
-import { appendLocalMessage, applyInputRequestEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, historyToBubbles, type InputRequestModel, type InputRequestPayload, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, resolveInputRequest, type ToolPayload } from './chat-state'
+import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, resolveInputRequest, type ToolPayload } from './chat-state'
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
 import { ChatGatewayClient } from './gateway'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
@@ -91,7 +91,11 @@ export function App() {
 
       activeRuntimeRef.current = opened.runtimeId
       setActiveRuntimeId(opened.runtimeId)
-      setMessages(historyToBubbles(opened.history.messages, profileName))
+      const historyMessages = historyToBubbles(opened.history.messages, profileName)
+      setMessages(opened.pendingInputRequests.reduce(
+        (current, event) => applyInputRequestEvent(current, event),
+        historyMessages
+      ))
     } catch (error) {
       if (generation === openGenerationRef.current) {
         setSessionError(error instanceof Error ? error.message : 'Could not open session')
@@ -101,7 +105,7 @@ export function App() {
     }
   }, [])
 
-  const handleInputResponse = useCallback(async (request: InputRequestModel, response: string) => {
+  const handleInputResponse = useCallback(async (request: InputRequestModel, response: InputResponse) => {
     const gateway = gatewayRef.current
     const runtimeId = activeRuntimeRef.current
 
@@ -109,7 +113,8 @@ export function App() {
 
     try {
       await respondToInputRequest(gateway, request, response, runtimeId)
-      setMessages(current => resolveInputRequest(current, request.requestId))
+      setSessionError(null)
+      setMessages(current => resolveInputRequest(current, request.requestId, response))
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : 'Could not send response')
     }
@@ -168,7 +173,7 @@ export function App() {
         setMessages(current => applyToolEvent(current, event as GatewayEvent<ToolPayload>))
       }))
 
-      const reasoningTypes = ['thinking.delta', 'reasoning.delta'] as const
+      const reasoningTypes = ['thinking.delta', 'reasoning.delta', 'reasoning.available'] as const
 
       const unsubscribeReasoning = reasoningTypes.map(type => gateway.on(type, event => {
         const runtimeId = activeRuntimeRef.current
@@ -185,6 +190,13 @@ export function App() {
         if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
         setMessages(current => applyInputRequestEvent(current, event as GatewayEvent<InputRequestPayload>))
       }))
+
+      const unsubscribeInputExpire = gateway.on('clarify.expire', event => {
+        const runtimeId = activeRuntimeRef.current
+
+        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+        setMessages(current => applyInputRequestExpireEvent(current, event as GatewayEvent<InputRequestExpirePayload>))
+      })
 
       const unsubscribeTitle = gateway.on('session.title', () => { void refreshSessions(gateway) })
 
@@ -219,6 +231,7 @@ export function App() {
         unsubscribeTools.forEach(unsubscribe => unsubscribe())
         unsubscribeReasoning.forEach(unsubscribe => unsubscribe())
         unsubscribeInput.forEach(unsubscribe => unsubscribe())
+        unsubscribeInputExpire()
         gateway.close()
       }
     }
@@ -325,12 +338,22 @@ export function App() {
       const generation = openGenerationRef.current
 
       try {
-        runtimeId = await ensureSessionRuntime(gateway, selectedSession)
+        const resumed = await ensureSessionRuntime(gateway, selectedSession)
+        runtimeId = resumed.runtimeId
         runtimesRef.current.set(selectedSession.id, runtimeId)
 
         if (generation !== openGenerationRef.current) {return}
         activeRuntimeRef.current = runtimeId
         setActiveRuntimeId(runtimeId)
+
+        if (resumed.pendingInputRequests.length > 0) {
+          setMessages(current => resumed.pendingInputRequests.reduce(
+            (next, event) => applyInputRequestEvent(next, event),
+            current
+          ))
+
+          return
+        }
       } catch (error) {
         setSessionError(error instanceof Error ? error.message : 'Could not resume session')
 

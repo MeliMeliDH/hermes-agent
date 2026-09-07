@@ -634,6 +634,38 @@
   gap: var(--space-2);
 }
 
+.input-request-question {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.input-request-question legend {
+  padding-inline: var(--space-1);
+  font-weight: var(--font-weight-medium);
+}
+
+.input-request-options {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.input-request-options label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text);
+}
+
+.input-request-resolved {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
 .input-request-response input {
   flex: 1;
   min-width: calc(var(--space-8) * 3);
