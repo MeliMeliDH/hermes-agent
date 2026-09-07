@@ -25,14 +25,38 @@ function maybeReloadForLoopbackWsAuthFailure(code: number): boolean {
 }
 
 export class ChatGatewayClient extends JsonRpcGatewayClient {
-  constructor() {
+  private readonly notifyDisconnect?: (event: CloseEvent) => void
+  // Distinguishes "was open, then dropped" (real disconnect, worth
+  // reconnecting for) from "never finished connecting" (a failed connect
+  // attempt, e.g. server down) -- a browser fires 'close' for BOTH cases,
+  // and the base client already rejects connect()'s promise for the latter.
+  // Treating both as a disconnect double-fires the caller's retry logic
+  // (one via onDisconnect, one via the connect().catch()), which bypasses
+  // backoff entirely and reconnect-storms the server.
+  private hasOpened = false
+
+  constructor(options: { onDisconnect?: (event: CloseEvent) => void } = {}) {
     super({
       closedErrorMessage: 'WebSocket closed',
       connectErrorMessage: 'WebSocket connection failed',
       notConnectedErrorMessage: 'gateway not connected',
-      onSocketClose: event => maybeReloadForLoopbackWsAuthFailure(event.code),
+      onSocketClose: event => {
+        if (maybeReloadForLoopbackWsAuthFailure(event.code)) {return true}
+
+        if (this.hasOpened) {
+          this.hasOpened = false
+          // Let the base client finish its own close teardown (reject
+          // pending requests, flip connectionState to 'closed') first --
+          // real network drops (mobile network handoff, backgrounding,
+          // sleep/wake) have no other signal.
+          queueMicrotask(() => this.notifyDisconnect?.(event))
+        }
+
+        return false
+      },
       requestIdPrefix: 'chat-web'
     })
+    this.notifyDisconnect = options.onDisconnect
   }
 
   async connect(): Promise<void> {
@@ -53,5 +77,6 @@ export class ChatGatewayClient extends JsonRpcGatewayClient {
         path: '/api/ws'
       })
     )
+    this.hasOpened = true
   }
 }

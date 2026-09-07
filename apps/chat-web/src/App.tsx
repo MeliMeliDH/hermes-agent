@@ -1,4 +1,5 @@
 import type { GatewayEvent } from '@hermes/shared'
+import { reconnectBackoffDelayMs } from '@hermes/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { HERMES_BASE_PATH } from './auth'
@@ -100,54 +101,81 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const gateway = new ChatGatewayClient()
-    gatewayRef.current = gateway
-    let active = true
-    let readyReceived = false
+    let disposed = false
+    let reconnectAttempt = 0
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    let disposeCurrent: (() => void) | undefined
 
-    const unsubscribeReady = gateway.on('gateway.ready', () => { readyReceived = true })
-    const messageTypes = ['message.start', 'message.delta', 'message.interim', 'message.complete'] as const
+    const connectOnce = () => {
+      const gateway = new ChatGatewayClient({
+        onDisconnect: () => {
+          if (disposed) {return}
+          setConnection('error')
+          setConnectionMessage('Gateway disconnected — reconnecting…')
+          reconnectAttempt += 1
+          reconnectTimer = setTimeout(connectOnce, reconnectBackoffDelayMs(reconnectAttempt - 1))
+        }
+      })
 
-    const unsubscribeMessages = messageTypes.map(type => gateway.on(type, event => {
-      const runtimeId = activeRuntimeRef.current
+      gatewayRef.current = gateway
+      let active = true
+      let readyReceived = false
 
-      if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+      const unsubscribeReady = gateway.on('gateway.ready', () => { readyReceived = true })
+      const messageTypes = ['message.start', 'message.delta', 'message.interim', 'message.complete'] as const
 
-      if (event.type === 'message.start') {setTurnRunning(true)}
+      const unsubscribeMessages = messageTypes.map(type => gateway.on(type, event => {
+        const runtimeId = activeRuntimeRef.current
 
-      if (event.type === 'message.complete') {setTurnRunning(false)}
-      setMessages(current => applyMessageEvent(current, event as GatewayEvent<MessagePayload>, activeProfileRef.current))
-    }))
+        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
 
-    const unsubscribeTitle = gateway.on('session.title', () => { void refreshSessions(gateway) })
+        if (event.type === 'message.start') {setTurnRunning(true)}
 
-    void gateway.connect().then(async () => {
-      const [nextSessions, nextProfiles, commandCatalog] = await Promise.all([
-        refreshSessions(gateway),
-        loadProfiles(gateway),
-        gateway.request<SlashCatalog>('commands.catalog', {})
-      ])
+        if (event.type === 'message.complete') {setTurnRunning(false)}
+        setMessages(current => applyMessageEvent(current, event as GatewayEvent<MessagePayload>, activeProfileRef.current))
+      }))
 
-      if (!active) {return}
-      setProfiles(nextProfiles)
-      setSlashSuggestions(filterSlashCommands(commandCatalog))
-      setConnection('connected')
-      setConnectionMessage(`Live gateway connected · gateway.ready ${readyReceived ? 'received' : 'pending'} · ${nextSessions.length} sessions`)
+      const unsubscribeTitle = gateway.on('session.title', () => { void refreshSessions(gateway) })
 
-      if (nextSessions[0]) {await showSession(nextSessions[0], gateway)}
-    }).catch((error: unknown) => {
-      if (!active) {return}
-      setConnection('error')
-      setConnectionMessage(error instanceof Error ? error.message : 'Gateway connection failed')
-    })
+      void gateway.connect().then(async () => {
+        const [nextSessions, nextProfiles, commandCatalog] = await Promise.all([
+          refreshSessions(gateway),
+          loadProfiles(gateway),
+          gateway.request<SlashCatalog>('commands.catalog', {})
+        ])
+
+        if (!active) {return}
+        reconnectAttempt = 0
+        setProfiles(nextProfiles)
+        setSlashSuggestions(filterSlashCommands(commandCatalog))
+        setConnection('connected')
+        setConnectionMessage(`Live gateway connected · gateway.ready ${readyReceived ? 'received' : 'pending'} · ${nextSessions.length} sessions`)
+
+        if (nextSessions[0]) {await showSession(nextSessions[0], gateway)}
+      }).catch((error: unknown) => {
+        if (!active) {return}
+        setConnection('error')
+        setConnectionMessage(error instanceof Error ? error.message : 'Gateway connection failed')
+        reconnectAttempt += 1
+        reconnectTimer = setTimeout(connectOnce, reconnectBackoffDelayMs(reconnectAttempt - 1))
+      })
+
+      disposeCurrent = () => {
+        active = false
+        unsubscribeReady()
+        unsubscribeTitle()
+        unsubscribeMessages.forEach(unsubscribe => unsubscribe())
+        gateway.close()
+      }
+    }
+
+    connectOnce()
 
     return () => {
-      active = false
+      disposed = true
       openGenerationRef.current += 1
-      unsubscribeReady()
-      unsubscribeTitle()
-      unsubscribeMessages.forEach(unsubscribe => unsubscribe())
-      gateway.close()
+      clearTimeout(reconnectTimer)
+      disposeCurrent?.()
       gatewayRef.current = null
     }
   }, [refreshSessions, showSession])
