@@ -19,7 +19,7 @@ type ConnectionState = 'connected' | 'connecting' | 'error'
 // bot/agent profiles), so this ships as a bundled static asset rather than
 // wiring up a new RPC surface for a single-user local deployment.
 const USER_IDENTITY: ProfileIdentity = {
-  avatar: `${HERMES_BASE_PATH}/user-avatar.png`,
+  avatar: `${HERMES_BASE_PATH}${import.meta.env.BASE_URL}user-avatar.png`,
   displayName: 'You',
   isDefault: false,
   name: 'you'
