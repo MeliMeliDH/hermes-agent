@@ -1,6 +1,7 @@
 import type { GatewayEvent } from '@hermes/shared'
 
 import { displayNameForProfile } from './identity'
+import { extractMessageContent, type MessageAttachment } from './message-content'
 
 export interface GatewayHistoryMessage {
   content?: unknown
@@ -13,6 +14,7 @@ export interface GatewayHistoryMessage {
 }
 
 export interface MessageBubbleModel {
+  attachments?: MessageAttachment[]
   id: string
   interim: boolean
   profileName?: string
@@ -65,9 +67,11 @@ function assistantBubble(
   profileName: string,
   timestamp: number,
   text = '',
-  streaming = true
+  streaming = true,
+  attachments?: MessageAttachment[]
 ): MessageBubbleModel {
   return {
+    ...(attachments?.length ? { attachments } : {}),
     id,
     interim: false,
     profileName,
@@ -81,9 +85,10 @@ function assistantBubble(
 
 export function historyToBubbles(history: GatewayHistoryMessage[], profileName: string): MessageBubbleModel[] {
   return history.flatMap((message, index) => {
-    const text = historyText(message).trim()
+    const content = extractMessageContent(historyText(message).trim())
+    const text = content.text
 
-    if (!text || message.display_kind === 'hidden' || message.role === 'tool') {return []}
+    if ((!text && content.attachments.length === 0) || message.display_kind === 'hidden' || message.role === 'tool') {return []}
 
     const id = message.row_id === undefined ? `history-${index}` : `history-row-${message.row_id}`
     const timestamp = typeof message.timestamp === 'number' ? message.timestamp : 0
@@ -95,15 +100,38 @@ export function historyToBubbles(history: GatewayHistoryMessage[], profileName: 
         const senderName = (delivery[1] || delivery[3] || 'agent').trim()
         const senderProfile = (delivery[2] || delivery[3] || senderName).trim()
 
-        return [{ ...assistantBubble(id, senderProfile, timestamp, (delivery[4] || '').trim(), false), senderName }]
+        return [{
+          ...assistantBubble(id, senderProfile, timestamp, (delivery[4] || '').trim(), false, content.attachments),
+          senderName
+        }]
       }
 
-      return [{ id, interim: false, role: 'user' as const, senderName: 'You', streaming: false, text, timestamp }]
+      return [{
+        ...(content.attachments.length ? { attachments: content.attachments } : {}),
+        id,
+        interim: false,
+        role: 'user' as const,
+        senderName: 'You',
+        streaming: false,
+        text,
+        timestamp
+      }]
     }
 
-    if (message.role === 'assistant') {return [assistantBubble(id, profileName, timestamp, text, false)]}
+    if (message.role === 'assistant') {
+      return [assistantBubble(id, profileName, timestamp, text, false, content.attachments)]
+    }
 
-    return [{ id, interim: false, role: 'system' as const, senderName: 'Hermes', streaming: false, text, timestamp }]
+    return [{
+      ...(content.attachments.length ? { attachments: content.attachments } : {}),
+      id,
+      interim: false,
+      role: 'system' as const,
+      senderName: 'Hermes',
+      streaming: false,
+      text,
+      timestamp
+    }]
   })
 }
 
@@ -191,12 +219,14 @@ export function applyMessageEvent(
 
   if (streamIndex < 0 && !(payload.text ?? '').trim()) {return next}
   const bubble = ensureStream()
+  const completedContent = extractMessageContent(payload.text ?? bubble.text)
   next[streamIndex] = {
     ...bubble,
+    ...(completedContent.attachments.length ? { attachments: completedContent.attachments } : {}),
     rendered: payload.rendered ?? bubble.rendered,
     status: payload.status ?? (payload.error ? 'error' : 'complete'),
     streaming: false,
-    text: payload.text ?? bubble.text,
+    text: completedContent.text,
     usage: payload.usage
   }
 

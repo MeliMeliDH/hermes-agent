@@ -31,6 +31,26 @@ describe('MessageBubble', () => {
     expect(html).toContain('<time')
   })
 
+  it('renders extracted image attachments as images and files as chips', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble
+        message={{
+          ...assistant,
+          attachments: [
+            { kind: 'image', name: 'photo.png', url: 'data:image/png;base64,aGVsbG8=' },
+            { kind: 'file', name: 'report.pdf' }
+          ],
+          text: 'Attached results'
+        }}
+      />
+    )
+
+    expect(html).toContain('<img alt="photo.png"')
+    expect(html).toContain('data:image/png;base64,aGVsbG8=')
+    expect(html).toContain('message-file')
+    expect(html).toContain('report.pdf')
+  })
+
   it('uses a monogram when an avatar asset is unavailable', () => {
     const html = renderToStaticMarkup(<MessageBubble message={{ ...assistant, profileName: 'research', senderName: 'research' }} />)
     expect(html).toContain('aria-label="research avatar"')

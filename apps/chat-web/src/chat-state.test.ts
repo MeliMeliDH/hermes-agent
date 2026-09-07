@@ -20,6 +20,22 @@ describe('historyToBubbles', () => {
     ])
   })
 
+  it('projects the gateway data-image history shape into an attachment', () => {
+    const bubbles = historyToBubbles(
+      [{
+        role: 'user',
+        text: 'Caption\n[Image attached at: /tmp/photo.png]\ndata:image/png;base64,aGVsbG8='
+      }],
+      'default'
+    )
+
+    expect(bubbles[0]).toMatchObject({
+      attachments: [{ kind: 'image', name: 'photo.png', url: 'data:image/png;base64,aGVsbG8=' }],
+      role: 'user',
+      text: 'Caption'
+    })
+  })
+
   it('renders an inter-agent delivery as the sending profile instead of the human', () => {
     const bubbles = historyToBubbles(
       [{ role: 'user', text: 'Message from 🤖 Researcher (@research): Findings ready.' }],

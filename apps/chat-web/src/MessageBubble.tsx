@@ -2,6 +2,7 @@ import { createElement, Fragment, type ReactNode } from 'react'
 
 import type { MessageBubbleModel } from './chat-state'
 import { initialsForName, type ProfileIdentity } from './identity'
+import { type MessageAttachment, safeMediaUrl } from './message-content'
 
 interface MessageBubbleProps {
   identity?: ProfileIdentity
@@ -41,7 +42,7 @@ function MarkdownText({ text }: { text: string }) {
   })
 }
 
-const ALLOWED_HINT_TAGS = new Set(['A', 'BLOCKQUOTE', 'BR', 'CODE', 'EM', 'LI', 'OL', 'P', 'PRE', 'STRONG', 'UL'])
+const ALLOWED_HINT_TAGS = new Set(['A', 'BLOCKQUOTE', 'BR', 'CODE', 'EM', 'IMG', 'LI', 'OL', 'P', 'PRE', 'STRONG', 'UL'])
 
 function safeHref(value: string | null): string | undefined {
   return value && /^https?:\/\//i.test(value) ? value : undefined
@@ -56,9 +57,38 @@ function hintNode(node: Node, key: number): ReactNode {
 
   if (!ALLOWED_HINT_TAGS.has(element.tagName)) {return <Fragment key={key}>{children}</Fragment>}
   const tag = element.tagName.toLowerCase()
+
+  if (tag === 'img') {
+    const src = safeMediaUrl(element.getAttribute('src') ?? '')
+
+    return src ? <img alt={element.getAttribute('alt') ?? 'Attached image'} key={key} loading="lazy" src={src} /> : null
+  }
+
   const props = tag === 'a' ? { href: safeHref(element.getAttribute('href')), rel: 'noreferrer', target: '_blank' } : {}
 
   return createElement(tag, { ...props, key }, children)
+}
+
+function AttachmentList({ attachments = [] }: { attachments?: MessageAttachment[] }) {
+  if (attachments.length === 0) {return null}
+
+  return (
+    <div className="message-attachments">
+      {attachments.map((attachment, index) => {
+        if (attachment.kind === 'image' && attachment.url) {
+          return <img alt={attachment.name} className="message-image" key={`${attachment.url}-${index}`} loading="lazy" src={attachment.url} />
+        }
+
+        const label = `${attachment.kind === 'image' ? 'Image' : 'File'} · ${attachment.name}`
+
+        return attachment.url ? (
+          <a className="message-file" href={attachment.url} key={`${attachment.name}-${index}`} rel="noreferrer" target="_blank">{label}</a>
+        ) : (
+          <span className="message-file" key={`${attachment.name}-${index}`}>{label}</span>
+        )
+      })}
+    </div>
+  )
 }
 
 function RenderedContent({ message }: { message: MessageBubbleModel }) {
@@ -101,7 +131,8 @@ export function MessageBubble({ identity, message }: MessageBubbleProps) {
           {message.interim && <span className="message-label">Interim</span>}
         </header>
         <div className="message-bubble">
-          <RenderedContent message={message} />
+          {message.text && <RenderedContent message={message} />}
+          <AttachmentList attachments={message.attachments} />
           {message.streaming && <span aria-label="Streaming" className="streaming-caret" />}
           {message.status === 'error' && <p className="message-error">Response ended with an error.</p>}
         </div>
