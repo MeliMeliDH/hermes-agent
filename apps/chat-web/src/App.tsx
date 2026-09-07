@@ -13,6 +13,12 @@ interface SessionListResult {
 
 type ConnectionState = 'connected' | 'connecting' | 'error'
 
+// Static identity for the human side of the conversation. There is no
+// gateway concept of a "user avatar" (profiles.get_asset only covers
+// bot/agent profiles), so this ships as a bundled static asset rather than
+// wiring up a new RPC surface for a single-user local deployment.
+const USER_IDENTITY: ProfileIdentity = { avatar: '/user-avatar.png', displayName: 'You', isDefault: false, name: 'you' }
+
 function sessionTitle(session: SessionRow): string {
   return session.title?.trim() || session.preview?.trim() || 'Untitled session'
 }
@@ -225,7 +231,13 @@ export function App() {
           ) : messages.length ? (
             messages.map(message => (
               <MessageBubble
-                identity={message.profileName ? profiles[message.profileName] ?? profiles[message.profileName.toLowerCase()] : undefined}
+                identity={
+                  message.role === 'user'
+                    ? USER_IDENTITY
+                    : message.profileName
+                      ? profiles[message.profileName] ?? profiles[message.profileName.toLowerCase()]
+                      : undefined
+                }
                 key={message.id}
                 message={message}
               />
