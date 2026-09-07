@@ -1,6 +1,7 @@
 .chat-shell {
   display: grid;
   grid-template-columns: minmax(18rem, 24vw) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
 }
