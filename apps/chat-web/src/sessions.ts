@@ -1,3 +1,4 @@
+import { HERMES_BASE_PATH } from './auth'
 import type { GatewayHistoryMessage } from './chat-state'
 import type { GatewayRequester } from './identity'
 
@@ -23,33 +24,71 @@ interface SessionRuntimeResponse {
 
 export interface OpenedSession {
   history: SessionHistory
-  runtimeId: string
+  runtimeId: null | string
+}
+
+interface StoredHistoryResponse {
+  messages?: GatewayHistoryMessage[]
+  pagination?: { returned?: number }
+}
+
+type StoredHistoryFetcher = (session: SessionRow) => Promise<StoredHistoryResponse>
+
+export async function fetchStoredSessionHistory(session: SessionRow): Promise<StoredHistoryResponse> {
+  const query = new URLSearchParams({ include_compacted: 'true', limit: '500', order: 'latest' })
+
+  if (session.profile && session.profile !== 'default') {query.set('profile', session.profile)}
+  const headers = new Headers()
+
+  if (!window.__HERMES_AUTH_REQUIRED__ && window.__HERMES_SESSION_TOKEN__) {
+    headers.set('X-Hermes-Session-Token', window.__HERMES_SESSION_TOKEN__)
+  }
+
+  const response = await fetch(
+    `${HERMES_BASE_PATH}/api/sessions/${encodeURIComponent(session.id)}/messages?${query.toString()}`,
+    { credentials: 'include', headers }
+  )
+
+  if (!response.ok) {throw new Error(`Session history: HTTP ${response.status}`)}
+
+  return response.json()
+}
+
+export async function ensureSessionRuntime(gateway: GatewayRequester, session: SessionRow): Promise<string> {
+  const resumed = await gateway.request<SessionRuntimeResponse>('session.resume', {
+    cols: 96,
+    omit_messages: true,
+    ...(session.profile && session.profile !== 'default' ? { profile: session.profile } : {}),
+    session_id: session.id,
+    source: 'chat-web'
+  })
+
+  return resumed.session_id
 }
 
 export async function openSession(
   gateway: GatewayRequester,
   session: SessionRow,
-  knownRuntimeId?: string
+  knownRuntimeId?: string,
+  fetchHistory: StoredHistoryFetcher = fetchStoredSessionHistory
 ): Promise<OpenedSession> {
-  let runtimeId = knownRuntimeId
+  if (!knownRuntimeId) {
+    // Opening history is a read-only action. session.resume claims a live runtime,
+    // restores model history, schedules agent warm-up, and may schedule an
+    // auto-continue; defer that shared-core path until the user actually sends.
+    const stored = await fetchHistory(session)
+    const messages = stored.messages ?? []
 
-  if (runtimeId) {
-    await gateway.request('session.activate', { omit_messages: true, session_id: runtimeId })
-  } else {
-    const resumed = await gateway.request<SessionRuntimeResponse>('session.resume', {
-      cols: 96,
-      omit_messages: true,
-      ...(session.profile && session.profile !== 'default' ? { profile: session.profile } : {}),
-      session_id: session.id,
-      source: 'chat-web'
-    })
-
-    runtimeId = resumed.session_id
+    return {
+      history: { count: stored.pagination?.returned ?? messages.length, messages },
+      runtimeId: null
+    }
   }
 
-  const history = await gateway.request<SessionHistory>('session.history', { session_id: runtimeId })
+  await gateway.request('session.activate', { omit_messages: true, session_id: knownRuntimeId })
+  const history = await gateway.request<SessionHistory>('session.history', { session_id: knownRuntimeId })
 
-  return { history, runtimeId }
+  return { history, runtimeId: knownRuntimeId }
 }
 
 export async function createSession(gateway: GatewayRequester): Promise<{ runtimeId: string; storedId: string }> {

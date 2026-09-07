@@ -8,7 +8,7 @@ import { ChatGatewayClient } from './gateway'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
-import { createSession, deleteSession, openSession, type SessionRow } from './sessions'
+import { createSession, deleteSession, ensureSessionRuntime, openSession, type SessionRow } from './sessions'
 import { loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
 interface SessionListResult {
@@ -63,6 +63,8 @@ export function App() {
     const generation = ++openGenerationRef.current
     const profileName = session.profile || 'default'
     setActiveStoredId(session.id)
+    activeRuntimeRef.current = null
+    setActiveRuntimeId(null)
     activeProfileRef.current = profileName
     setLoadingHistory(true)
     setSessionError(null)
@@ -71,7 +73,11 @@ export function App() {
       const opened = await openSession(gateway, session, runtimesRef.current.get(session.id))
 
       if (generation !== openGenerationRef.current) {return}
-      runtimesRef.current.set(session.id, opened.runtimeId)
+
+      if (opened.runtimeId) {
+        runtimesRef.current.set(session.id, opened.runtimeId)
+      }
+
       activeRuntimeRef.current = opened.runtimeId
       setActiveRuntimeId(opened.runtimeId)
       setMessages(historyToBubbles(opened.history.messages, profileName))
@@ -209,10 +215,9 @@ export function App() {
 
   const handleSubmit = async () => {
     const gateway = gatewayRef.current
-    const runtimeId = activeRuntimeRef.current
     const input = draft.trim()
 
-    if (!gateway || !runtimeId || !input || turnRunning) {return}
+    if (!gateway || !activeStoredId || !input || turnRunning) {return}
 
     if (['/new', '/reset'].includes(input.toLowerCase())) {
       setDraft('')
@@ -226,6 +231,29 @@ export function App() {
       await handleInterrupt()
 
       return
+    }
+
+    const selectedSession = sessions.find(session => session.id === activeStoredId)
+
+    if (!selectedSession) {return}
+
+    let runtimeId = activeRuntimeRef.current
+
+    if (!runtimeId) {
+      const generation = openGenerationRef.current
+
+      try {
+        runtimeId = await ensureSessionRuntime(gateway, selectedSession)
+        runtimesRef.current.set(selectedSession.id, runtimeId)
+
+        if (generation !== openGenerationRef.current) {return}
+        activeRuntimeRef.current = runtimeId
+        setActiveRuntimeId(runtimeId)
+      } catch (error) {
+        setSessionError(error instanceof Error ? error.message : 'Could not resume session')
+
+        return
+      }
     }
 
     const plainPrompt = !input.startsWith('/')
@@ -361,7 +389,7 @@ export function App() {
         </div>
         <MessageComposer
           busy={turnRunning}
-          disabled={connection !== 'connected' || !activeRuntimeId || loadingHistory}
+          disabled={connection !== 'connected' || !activeStoredId || loadingHistory}
           draft={draft}
           onChange={setDraft}
           onInterrupt={() => void handleInterrupt()}
