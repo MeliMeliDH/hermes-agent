@@ -12,8 +12,8 @@ import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './ide
 import { respondToInputRequest } from './input-requests'
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
-import { isNearBottom, watchViewportForFollow } from './scroll-follow'
-import { createSession, deleteSession, ensureSessionRuntime, openSession, selectReconnectSession, type SessionRow } from './sessions'
+import { IMMEDIATE_SCROLL_BEHAVIOR, isNearBottom, resolveScrollFollowState, scheduleAfterLayout, scheduleFollowAfterLayout, watchContentResizeForFollow, watchViewportForFollow } from './scroll-follow'
+import { createSession, deleteSession, ensureSessionRuntime, loadLastSessionId, openSession, persistLastSessionId, selectReconnectSession, type SessionRow } from './sessions'
 import { isCompactChatViewport, loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
 interface SessionListResult {
@@ -59,13 +59,15 @@ export function App() {
   const [slashSuggestions, setSlashSuggestions] = useState<SlashSuggestion[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const gatewayRef = useRef<ChatGatewayClient | null>(null)
-  const activeStoredRef = useRef<string | null>(null)
+  const activeStoredRef = useRef<string | null>(loadLastSessionId())
   const attachmentPreviewsRef = useRef(new Set<string>())
   const runtimesRef = useRef(new Map<string, string>())
   const activeRuntimeRef = useRef<string | null>(null)
   const activeProfileRef = useRef('default')
   const openGenerationRef = useRef(0)
   const messageListRef = useRef<HTMLDivElement | null>(null)
+  const messageContentRef = useRef<HTMLDivElement | null>(null)
+  const userScrollIntentRef = useRef(false)
   // Tracks whether the user is scrolled near the bottom, so new/streaming
   // messages auto-scroll only when they're already following along --
   // never yank the view while they're reading scrollback further up.
@@ -93,6 +95,7 @@ export function App() {
     const profileName = session.profile || 'default'
     setActiveStoredId(session.id)
     activeStoredRef.current = session.id
+    persistLastSessionId(session.id)
     activeRuntimeRef.current = null
     setActiveRuntimeId(null)
     activeProfileRef.current = profileName
@@ -247,7 +250,7 @@ export function App() {
       const runtimeId = activeRuntimeRef.current
 
       if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
-      setMessages(current => applyToolEvent(current, event as GatewayEvent<ToolPayload>))
+      setMessages(current => applyToolEvent(current, event as GatewayEvent<ToolPayload>, undefined, activeProfileRef.current))
     }))
 
     const reasoningTypes = ['thinking.delta', 'reasoning.delta', 'reasoning.available'] as const
@@ -265,7 +268,7 @@ export function App() {
       const runtimeId = activeRuntimeRef.current
 
       if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
-      setMessages(current => applyInputRequestEvent(current, event as GatewayEvent<InputRequestPayload>))
+      setMessages(current => applyInputRequestEvent(current, event as GatewayEvent<InputRequestPayload>, undefined, activeProfileRef.current))
     }))
 
     const unsubscribeInputExpire = gateway.on('clarify.expire', event => {
@@ -309,6 +312,7 @@ export function App() {
       setActiveRuntimeId(created.runtimeId)
       setActiveStoredId(created.storedId)
       activeStoredRef.current = created.storedId
+      persistLastSessionId(created.storedId)
       releasePreviews()
       setSelectedAttachments([])
       setMessages([])
@@ -534,9 +538,16 @@ export function App() {
     if (!el) {return}
     const nearBottom = isNearBottom({ clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, scrollTop: el.scrollTop })
 
-    stickToBottomRef.current = nearBottom
-    setShowJumpToBottom(!nearBottom)
+    stickToBottomRef.current = resolveScrollFollowState(
+      stickToBottomRef.current,
+      nearBottom,
+      userScrollIntentRef.current
+    )
+    userScrollIntentRef.current = false
+    setShowJumpToBottom(!stickToBottomRef.current)
   }
+
+  const markUserScrollIntent = () => {userScrollIntentRef.current = true}
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     const el = messageListRef.current
@@ -548,22 +559,35 @@ export function App() {
   }
 
   useEffect(() => {
-    if (stickToBottomRef.current) {
-      // No smooth-scroll here: a streaming response fires this on every
-      // delta, and animating each one fights itself -- jump instantly,
-      // reserve the smooth behavior for the explicit jump-to-bottom click.
-      scrollToBottom('instant')
-    }
+    // Capture the follow intent before replacing the timeline. The browser can
+    // emit a layout-driven scroll event while rich cards/history settle; that
+    // must not cancel the follow already requested for this render.
+    scheduleFollowAfterLayout(
+      requestAnimationFrame,
+      () => stickToBottomRef.current,
+      () => scrollToBottom(IMMEDIATE_SCROLL_BEHAVIOR)
+    )
   }, [messages])
 
   useEffect(() => watchViewportForFollow({
-    follow: () => scrollToBottom('instant'),
-    schedule: callback => {
-      requestAnimationFrame(() => {requestAnimationFrame(callback)})
-    },
+    follow: () => scrollToBottom(IMMEDIATE_SCROLL_BEHAVIOR),
+    schedule: callback => {scheduleAfterLayout(requestAnimationFrame, callback)},
     shouldFollow: () => stickToBottomRef.current,
     sources: window.visualViewport ? [window, window.visualViewport] : [window]
   }), [])
+
+  useEffect(() => {
+    const target = messageContentRef.current
+
+    if (!target || typeof ResizeObserver === 'undefined') {return}
+
+    return watchContentResizeForFollow({
+      createObserver: callback => new ResizeObserver(callback),
+      follow: () => scrollToBottom(IMMEDIATE_SCROLL_BEHAVIOR),
+      shouldFollow: () => stickToBottomRef.current,
+      target
+    })
+  }, [])
 
   const activeSession = sessions.find(session => session.id === activeStoredId)
   const slashQuery = draft.split(/\s/, 1)[0]?.toLowerCase() ?? ''
@@ -638,29 +662,34 @@ export function App() {
           aria-busy={loadingHistory}
           aria-live="polite"
           className="message-list"
+          onPointerDown={markUserScrollIntent}
           onScroll={handleMessageListScroll}
+          onTouchStart={markUserScrollIntent}
+          onWheel={markUserScrollIntent}
           ref={messageListRef}
         >
-          {loadingHistory ? (
-            <div className="empty-state">Loading session history…</div>
-          ) : messages.length ? (
-            messages.map(message => (
-              <MessageBubble
-                identity={
-                  message.role === 'user'
-                    ? USER_IDENTITY
-                    : message.profileName
-                      ? profiles[message.profileName] ?? profiles[message.profileName.toLowerCase()]
-                      : undefined
-                }
-                key={message.id}
-                message={message}
-                onInputResponse={handleInputResponse}
-              />
-            ))
-          ) : (
-            <div className="empty-state">{activeSession ? 'No messages in this session yet.' : 'Choose a session to view its history.'}</div>
-          )}
+          <div className="message-list-content" ref={messageContentRef}>
+            {loadingHistory ? (
+              <div className="empty-state">Loading session history…</div>
+            ) : messages.length ? (
+              messages.map(message => (
+                <MessageBubble
+                  identity={
+                    message.role === 'user'
+                      ? USER_IDENTITY
+                      : message.profileName
+                        ? profiles[message.profileName] ?? profiles[message.profileName.toLowerCase()]
+                        : undefined
+                  }
+                  key={message.id}
+                  message={message}
+                  onInputResponse={handleInputResponse}
+                />
+              ))
+            ) : (
+              <div className="empty-state">{activeSession ? 'No messages in this session yet.' : 'Choose a session to view its history.'}</div>
+            )}
+          </div>
         </div>
         {showJumpToBottom && (
           <button

@@ -1,6 +1,69 @@
 import { describe, expect, it } from 'vitest'
 
-import { isNearBottom, NEAR_BOTTOM_THRESHOLD_PX, watchViewportForFollow } from './scroll-follow'
+import { IMMEDIATE_SCROLL_BEHAVIOR, isNearBottom, NEAR_BOTTOM_THRESHOLD_PX, resolveScrollFollowState, scheduleAfterLayout, scheduleFollowAfterLayout, watchContentResizeForFollow, watchViewportForFollow } from './scroll-follow'
+
+it('uses the broadly supported immediate scroll behavior', () => {
+  expect(IMMEDIATE_SCROLL_BEHAVIOR).toBe('auto')
+})
+
+it('waits through two layout frames before following new content', () => {
+  const queued: Array<() => void> = []
+  let followed = false
+
+  scheduleAfterLayout(callback => queued.push(callback), () => { followed = true })
+  expect(followed).toBe(false)
+  queued.shift()?.()
+  expect(followed).toBe(false)
+  queued.shift()?.()
+  expect(followed).toBe(true)
+})
+
+it('does not let layout scroll events cancel an already scheduled follow', () => {
+  const queued: Array<() => void> = []
+  let shouldFollow = true
+  let followed = false
+
+  scheduleFollowAfterLayout(
+    callback => queued.push(callback),
+    () => shouldFollow,
+    () => { followed = true }
+  )
+  shouldFollow = false
+  queued.shift()?.()
+  queued.shift()?.()
+  expect(followed).toBe(true)
+})
+
+it('follows image-driven timeline growth while already at the bottom', () => {
+  let resized: (() => void) | undefined
+  let disconnected = false
+  let follows = 0
+  const target = {} as Element
+
+  const dispose = watchContentResizeForFollow({
+    createObserver: callback => ({
+      disconnect: () => { disconnected = true },
+      observe: element => {
+        expect(element).toBe(target)
+        resized = callback
+      }
+    }),
+    follow: () => { follows += 1 },
+    shouldFollow: () => true,
+    target
+  })
+
+  resized?.()
+  expect(follows).toBe(1)
+  dispose()
+  expect(disconnected).toBe(true)
+})
+
+it('ignores layout-driven scroll changes but honors user scroll intent', () => {
+  expect(resolveScrollFollowState(true, false, false)).toBe(true)
+  expect(resolveScrollFollowState(true, false, true)).toBe(false)
+  expect(resolveScrollFollowState(false, true, false)).toBe(true)
+})
 
 describe('isNearBottom', () => {
   it('is true when scrolled exactly to the bottom', () => {

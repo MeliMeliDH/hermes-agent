@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { GatewayRequester } from './identity'
-import { createSession, deleteSession, ensureSessionRuntime, openSession, selectReconnectSession } from './sessions'
+import { createSession, deleteSession, ensureSessionRuntime, loadLastSessionId, openSession, persistLastSessionId, selectReconnectSession } from './sessions'
 
 function gatewayWith(responses: Record<string, unknown>) {
   const request = vi.fn(async (method: string): Promise<unknown> => responses[method])
@@ -9,7 +9,14 @@ function gatewayWith(responses: Record<string, unknown>) {
   return { calls: request.mock.calls, request: request as unknown as GatewayRequester['request'] }
 }
 
-describe('session orchestration', () => {
+describe('session helpers', () => {
+  it('restores and persists the last opened stored session', () => {
+    const storage = { getItem: vi.fn(() => 'session-2'), setItem: vi.fn() }
+
+    expect(loadLastSessionId(storage)).toBe('session-2')
+    persistLastSessionId('session-3', storage)
+    expect(storage.setItem).toHaveBeenCalledWith('hermes.chatWeb.lastSessionId', 'session-3')
+  })
   it('keeps the selected stored session across reconnects', () => {
     const sessions = [
       { id: 'newest', profile: 'default' },

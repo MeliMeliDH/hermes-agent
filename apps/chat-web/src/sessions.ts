@@ -12,6 +12,37 @@ export interface SessionRow {
   title?: string
 }
 
+interface SessionStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+}
+
+const LAST_SESSION_STORAGE_KEY = 'hermes.chatWeb.lastSessionId'
+
+function browserStorage(): SessionStorage | undefined {
+  try {
+    return typeof window === 'undefined' ? undefined : window.localStorage
+  } catch {
+    return undefined
+  }
+}
+
+export function loadLastSessionId(storage: SessionStorage | undefined = browserStorage()): string | null {
+  try {
+    return storage?.getItem(LAST_SESSION_STORAGE_KEY)?.trim() || null
+  } catch {
+    return null
+  }
+}
+
+export function persistLastSessionId(sessionId: string, storage: SessionStorage | undefined = browserStorage()): void {
+  try {
+    storage?.setItem(LAST_SESSION_STORAGE_KEY, sessionId)
+  } catch {
+    // Session restoration is optional when storage is unavailable.
+  }
+}
+
 export function selectReconnectSession(sessions: SessionRow[], activeStoredId: string | null): SessionRow | undefined {
   return sessions.find(session => session.id === activeStoredId) ?? sessions[0]
 }

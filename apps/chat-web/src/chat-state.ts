@@ -234,7 +234,7 @@ export function historyToBubbles(history: GatewayHistoryMessage[], profileName: 
           result,
           status: 'complete',
           toolId
-        }, timestamp))
+        }, timestamp, profileName))
       }
 
       return
@@ -285,7 +285,7 @@ export function historyToBubbles(history: GatewayHistoryMessage[], profileName: 
 
     if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
       message.tool_calls.forEach((call, callIndex) => {
-        bubbles.push(toolRow(storedToolCall(call, `${id}-tool-${callIndex}`), timestamp))
+        bubbles.push(toolRow(storedToolCall(call, `${id}-tool-${callIndex}`), timestamp, profileName))
       })
     }
   })
@@ -326,12 +326,13 @@ function findStreamingIndex(messages: MessageBubbleModel[]): number {
   return -1
 }
 
-function toolRow(tool: ToolCallModel, timestamp: number): MessageBubbleModel {
+function toolRow(tool: ToolCallModel, timestamp: number, profileName: string): MessageBubbleModel {
   return {
     id: `tool-${tool.toolId}`,
     interim: false,
+    profileName,
     role: 'system',
-    senderName: 'Hermes',
+    senderName: displayNameForProfile(profileName),
     streaming: tool.status === 'running',
     text: '',
     timestamp,
@@ -353,7 +354,8 @@ export interface InputRequestPayload {
 export function applyInputRequestEvent(
   messages: MessageBubbleModel[],
   event: Pick<GatewayEvent<InputRequestPayload>, 'payload' | 'type'>,
-  now: () => number = () => Date.now() / 1000
+  now: () => number = () => Date.now() / 1000,
+  profileName = 'default'
 ): MessageBubbleModel[] {
   if (!['clarify.request', 'approval.request'].includes(event.type)) {return messages}
   const payload = event.payload ?? {}
@@ -408,8 +410,9 @@ export function applyInputRequestEvent(
     id: `input-${requestId}`,
     inputRequest,
     interim: false,
+    profileName,
     role: 'system',
-    senderName: 'Hermes',
+    senderName: displayNameForProfile(profileName),
     streaming: false,
     text: '',
     timestamp: now()
@@ -481,7 +484,8 @@ export function applyReasoningEvent(
 export function applyToolEvent(
   messages: MessageBubbleModel[],
   event: Pick<GatewayEvent<ToolPayload>, 'payload' | 'type'>,
-  now: () => number = () => Date.now() / 1000
+  now: () => number = () => Date.now() / 1000,
+  profileName = 'default'
 ): MessageBubbleModel[] {
   if (!['tool.start', 'tool.progress', 'tool.complete'].includes(event.type)) {return messages}
 
@@ -514,7 +518,7 @@ export function applyToolEvent(
     toolId
   }
 
-  if (index < 0) {return [...messages, toolRow(tool, now())]}
+  if (index < 0) {return [...messages, toolRow(tool, now(), profileName)]}
   const next = [...messages]
   next[index] = { ...next[index]!, streaming: tool.status === 'running', tool }
 

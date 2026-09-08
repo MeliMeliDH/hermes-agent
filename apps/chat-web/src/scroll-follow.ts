@@ -4,11 +4,37 @@
  * through a mounted DOM component. */
 
 export const NEAR_BOTTOM_THRESHOLD_PX = 80
+export const IMMEDIATE_SCROLL_BEHAVIOR: ScrollBehavior = 'auto'
+
+export function scheduleAfterLayout(
+  schedule: (callback: () => void) => void,
+  callback: () => void
+): void {
+  schedule(() => {schedule(callback)})
+}
+
+export function scheduleFollowAfterLayout(
+  schedule: (callback: () => void) => void,
+  shouldFollow: () => boolean,
+  follow: () => void
+): void {
+  if (shouldFollow()) {scheduleAfterLayout(schedule, follow)}
+}
 
 export interface ScrollMetrics {
   clientHeight: number
   scrollHeight: number
   scrollTop: number
+}
+
+export function resolveScrollFollowState(
+  wasFollowing: boolean,
+  nearBottom: boolean,
+  userInitiated: boolean
+): boolean {
+  if (nearBottom) {return true}
+
+  return userInitiated ? false : wasFollowing
 }
 
 /** True when the visible viewport is within NEAR_BOTTOM_THRESHOLD_PX of the
@@ -18,6 +44,28 @@ export function isNearBottom(metrics: ScrollMetrics): boolean {
   const distanceFromBottom = metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight
 
   return distanceFromBottom <= NEAR_BOTTOM_THRESHOLD_PX
+}
+
+interface ElementResizeObserver {
+  disconnect(): void
+  observe(target: Element): void
+}
+
+interface WatchContentResizeOptions {
+  createObserver: (callback: () => void) => ElementResizeObserver
+  follow: () => void
+  shouldFollow: () => boolean
+  target: Element
+}
+
+export function watchContentResizeForFollow(options: WatchContentResizeOptions): () => void {
+  const observer = options.createObserver(() => {
+    if (options.shouldFollow()) {options.follow()}
+  })
+
+  observer.observe(options.target)
+
+  return () => {observer.disconnect()}
 }
 
 interface ViewportEventSource {

@@ -21,7 +21,7 @@ describe('Phase 4 timeline events', () => {
     messages = applyToolEvent(messages, {
       type: 'tool.complete',
       payload: { args: { path: '/tmp/report.md' }, name: 'read_file', result: 'Done', tool_id: 'tool-1' }
-    }, now)
+    }, now, 'default')
 
     expect(messages).toHaveLength(1)
     expect(messages[0]?.tool).toMatchObject({
@@ -33,6 +33,7 @@ describe('Phase 4 timeline events', () => {
       status: 'complete',
       toolId: 'tool-1'
     })
+    expect(messages[0]).toMatchObject({ profileName: 'default', senderName: 'Victoria Hermes' })
 
     const html = renderToStaticMarkup(<MessageBubble message={messages[0]!} />)
     expect(html).toContain('<details class="tool-call"')

@@ -239,14 +239,17 @@
 }
 
 .message-list {
-  display: flex;
   flex: 1;
-  flex-direction: column;
-  gap: var(--space-5);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   padding: var(--space-6) max(var(--space-5), calc((100% - var(--max-width-content)) / 2));
+}
+
+.message-list-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
 }
 
 .message-composer {
@@ -809,6 +812,16 @@
 
   .message-row {
     max-width: 100%;
+  }
+
+  .input-request,
+  .tool-call {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .input-request-response input {
+    min-width: 0;
   }
 
   .avatar {
