@@ -1,28 +1,6 @@
 import { buildHermesWebSocketUrl, JsonRpcGatewayClient } from '@hermes/shared'
 
-import { buildWsAuthParam, HERMES_BASE_PATH } from './auth'
-
-const TOKEN_RELOAD_STORAGE_KEY = 'hermes.chatWebTokenReloadAttempted'
-
-function maybeReloadForLoopbackWsAuthFailure(code: number): boolean {
-  if (window.__HERMES_AUTH_REQUIRED__ || code !== 4401) {
-    return false
-  }
-
-  try {
-    if (window.sessionStorage.getItem(TOKEN_RELOAD_STORAGE_KEY) === '1') {
-      return false
-    }
-
-    window.sessionStorage.setItem(TOKEN_RELOAD_STORAGE_KEY, '1')
-  } catch {
-    // A reload is still the only recovery when storage is unavailable.
-  }
-
-  window.location.reload()
-
-  return true
-}
+import { buildWsAuthParam, clearAuthReloadAttempt, HERMES_BASE_PATH, maybeReloadForLoopbackWsAuthFailure } from './auth'
 
 export class ChatGatewayClient extends JsonRpcGatewayClient {
   private readonly notifyDisconnect?: (event: CloseEvent) => void
@@ -78,5 +56,6 @@ export class ChatGatewayClient extends JsonRpcGatewayClient {
       })
     )
     this.hasOpened = true
+    clearAuthReloadAttempt()
   }
 }

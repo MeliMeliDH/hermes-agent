@@ -12,6 +12,10 @@ export interface SessionRow {
   title?: string
 }
 
+export function selectReconnectSession(sessions: SessionRow[], activeStoredId: string | null): SessionRow | undefined {
+  return sessions.find(session => session.id === activeStoredId) ?? sessions[0]
+}
+
 export interface SessionHistory {
   count: number
   messages: GatewayHistoryMessage[]

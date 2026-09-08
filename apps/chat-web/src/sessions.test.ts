@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { GatewayRequester } from './identity'
-import { createSession, deleteSession, ensureSessionRuntime, openSession } from './sessions'
+import { createSession, deleteSession, ensureSessionRuntime, openSession, selectReconnectSession } from './sessions'
 
 function gatewayWith(responses: Record<string, unknown>) {
   const request = vi.fn(async (method: string): Promise<unknown> => responses[method])
@@ -9,7 +9,17 @@ function gatewayWith(responses: Record<string, unknown>) {
   return { calls: request.mock.calls, request: request as unknown as GatewayRequester['request'] }
 }
 
-describe('session operations', () => {
+describe('session orchestration', () => {
+  it('keeps the selected stored session across reconnects', () => {
+    const sessions = [
+      { id: 'newest', profile: 'default' },
+      { id: 'selected', profile: 'default' }
+    ]
+
+    expect(selectReconnectSession(sessions, 'selected')?.id).toBe('selected')
+    expect(selectReconnectSession(sessions, 'deleted')?.id).toBe('newest')
+  })
+
   it('hydrates a cold stored session through the read-only REST path without resuming it', async () => {
     const gateway = gatewayWith({})
 

@@ -27,6 +27,23 @@ describe('buildWsAuthParam', () => {
     })
   })
 
+  it('reloads once when a gated ticket request says the dashboard session expired', async () => {
+    const reload = vi.fn()
+    const storage = { getItem: vi.fn(() => null), removeItem: vi.fn(), setItem: vi.fn() }
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }))
+    vi.stubGlobal('window', {
+      __HERMES_AUTH_REQUIRED__: true,
+      __HERMES_BASE_PATH__: '',
+      location: { reload },
+      sessionStorage: storage
+    })
+
+    await expect(buildWsAuthParam()).rejects.toThrow('/api/auth/ws-ticket: HTTP 401')
+    expect(storage.setItem).toHaveBeenCalledWith('hermes.chatWebTokenReloadAttempted', '1')
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
   it('uses the injected token only when the auth gate is off', async () => {
     const fetch = vi.fn()
 

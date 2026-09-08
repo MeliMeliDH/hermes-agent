@@ -34,6 +34,8 @@ function stubConnectedSocket() {
 
 describe('ChatGatewayClient', () => {
   it('builds the current ticket-authenticated same-origin gateway URL', async () => {
+    const storage = { getItem: vi.fn(() => '1'), removeItem: vi.fn(), setItem: vi.fn() }
+
     const socket = {
       addEventListener: vi.fn((type: string, handler: () => void) => {
         if (type === 'open') {
@@ -60,7 +62,8 @@ describe('ChatGatewayClient', () => {
     vi.stubGlobal('window', {
       __HERMES_AUTH_REQUIRED__: true,
       __HERMES_BASE_PATH__: '',
-      location: { host: 'dashboard.example:9443', protocol: 'https:' }
+      location: { host: 'dashboard.example:9443', protocol: 'https:' },
+      sessionStorage: storage
     })
 
     const client = new ChatGatewayClient()
@@ -69,6 +72,7 @@ describe('ChatGatewayClient', () => {
     expect(WebSocketCtor).toHaveBeenCalledWith(
       'wss://dashboard.example:9443/api/ws?ticket=fresh-ticket'
     )
+    expect(storage.removeItem).toHaveBeenCalledWith('hermes.chatWebTokenReloadAttempted')
     client.close()
   })
 

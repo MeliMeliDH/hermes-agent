@@ -3,6 +3,7 @@
   grid-template-columns: minmax(18rem, 24vw) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -253,6 +254,7 @@
   border-top: var(--border-width) solid var(--color-border);
   flex: 0 0 auto;
   padding: var(--space-3) max(var(--space-5), calc((100% - var(--max-width-content)) / 2));
+  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
   position: relative;
 }
 

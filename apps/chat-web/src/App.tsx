@@ -6,13 +6,14 @@ import { createSelectedAttachments, releaseAttachmentPreviews, type SelectedAtta
 import { HERMES_BASE_PATH } from './auth'
 import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, resolveInputRequest, type ToolPayload } from './chat-state'
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
+import { createGatewayConnectionLifecycle } from './connection-lifecycle'
 import { ChatGatewayClient } from './gateway'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
 import { respondToInputRequest } from './input-requests'
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
-import { isNearBottom } from './scroll-follow'
-import { createSession, deleteSession, ensureSessionRuntime, openSession, type SessionRow } from './sessions'
+import { isNearBottom, watchViewportForFollow } from './scroll-follow'
+import { createSession, deleteSession, ensureSessionRuntime, openSession, selectReconnectSession, type SessionRow } from './sessions'
 import { loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
 interface SessionListResult {
@@ -58,6 +59,7 @@ export function App() {
   const [slashSuggestions, setSlashSuggestions] = useState<SlashSuggestion[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const gatewayRef = useRef<ChatGatewayClient | null>(null)
+  const activeStoredRef = useRef<string | null>(null)
   const attachmentPreviewsRef = useRef(new Set<string>())
   const runtimesRef = useRef(new Map<string, string>())
   const activeRuntimeRef = useRef<string | null>(null)
@@ -75,18 +77,27 @@ export function App() {
     attachmentPreviewsRef.current.clear()
   }
 
-  const showSession = useCallback(async (session: SessionRow, gateway = gatewayRef.current) => {
+  const showSession = useCallback(async (
+    session: SessionRow,
+    gateway = gatewayRef.current,
+    preserveAttachments = false
+  ) => {
     if (!gateway) {return}
     const generation = ++openGenerationRef.current
     const profileName = session.profile || 'default'
     setActiveStoredId(session.id)
+    activeStoredRef.current = session.id
     activeRuntimeRef.current = null
     setActiveRuntimeId(null)
     activeProfileRef.current = profileName
     setLoadingHistory(true)
     setSessionError(null)
-    releasePreviews()
-    setSelectedAttachments([])
+
+    if (!preserveAttachments) {
+      releasePreviews()
+      setSelectedAttachments([])
+    }
+
     stickToBottomRef.current = true
     setShowJumpToBottom(false)
 
@@ -141,118 +152,137 @@ export function App() {
 
   useEffect(() => {
     let disposed = false
-    let reconnectAttempt = 0
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
-    let disposeCurrent: (() => void) | undefined
+    let readyReceived = false
 
-    const connectOnce = () => {
-      const gateway = new ChatGatewayClient({
-        onDisconnect: () => {
-          if (disposed) {return}
-          setConnection('error')
-          setConnectionMessage('Gateway disconnected — reconnecting…')
-          reconnectAttempt += 1
-          reconnectTimer = setTimeout(connectOnce, reconnectBackoffDelayMs(reconnectAttempt - 1))
-        }
-      })
-
-      gatewayRef.current = gateway
-      let active = true
-      let readyReceived = false
-
-      const unsubscribeReady = gateway.on('gateway.ready', () => { readyReceived = true })
-      const messageTypes = ['message.start', 'message.delta', 'message.interim', 'message.complete'] as const
-
-      const unsubscribeMessages = messageTypes.map(type => gateway.on(type, event => {
-        const runtimeId = activeRuntimeRef.current
-
-        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
-
-        if (event.type === 'message.start') {setTurnRunning(true)}
-
-        if (event.type === 'message.complete') {setTurnRunning(false)}
-        setMessages(current => applyMessageEvent(current, event as GatewayEvent<MessagePayload>, activeProfileRef.current))
-      }))
-
-      const toolTypes = ['tool.start', 'tool.progress', 'tool.complete'] as const
-
-      const unsubscribeTools = toolTypes.map(type => gateway.on(type, event => {
-        const runtimeId = activeRuntimeRef.current
-
-        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
-        setMessages(current => applyToolEvent(current, event as GatewayEvent<ToolPayload>))
-      }))
-
-      const reasoningTypes = ['thinking.delta', 'reasoning.delta', 'reasoning.available'] as const
-
-      const unsubscribeReasoning = reasoningTypes.map(type => gateway.on(type, event => {
-        const runtimeId = activeRuntimeRef.current
-
-        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
-        setMessages(current => applyReasoningEvent(current, event as GatewayEvent<ReasoningPayload>, activeProfileRef.current))
-      }))
-
-      const inputTypes = ['clarify.request', 'approval.request'] as const
-
-      const unsubscribeInput = inputTypes.map(type => gateway.on(type, event => {
-        const runtimeId = activeRuntimeRef.current
-
-        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
-        setMessages(current => applyInputRequestEvent(current, event as GatewayEvent<InputRequestPayload>))
-      }))
-
-      const unsubscribeInputExpire = gateway.on('clarify.expire', event => {
-        const runtimeId = activeRuntimeRef.current
-
-        if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
-        setMessages(current => applyInputRequestExpireEvent(current, event as GatewayEvent<InputRequestExpirePayload>))
-      })
-
-      const unsubscribeTitle = gateway.on('session.title', () => { void refreshSessions(gateway) })
-
-      void gateway.connect().then(async () => {
+    const lifecycle = createGatewayConnectionLifecycle({
+      createClient: onDisconnect => new ChatGatewayClient({ onDisconnect }),
+      onConnected: async (gateway, reconnected) => {
         const [nextSessions, nextProfiles, commandCatalog] = await Promise.all([
-          refreshSessions(gateway),
-          loadProfiles(gateway),
-          gateway.request<SlashCatalog>('commands.catalog', {})
+          refreshSessions(gateway), loadProfiles(gateway), gateway.request<SlashCatalog>('commands.catalog', {})
         ])
 
-        if (!active) {return}
-        reconnectAttempt = 0
+        if (disposed) {return}
         setProfiles(nextProfiles)
         setSlashSuggestions(filterSlashCommands(commandCatalog))
         setConnection('connected')
         setConnectionMessage(`Live gateway connected · gateway.ready ${readyReceived ? 'received' : 'pending'} · ${nextSessions.length} sessions`)
 
-        if (nextSessions[0]) {await showSession(nextSessions[0], gateway)}
-      }).catch((error: unknown) => {
-        if (!active) {return}
+        const previousStoredId = activeStoredRef.current
+        const selected = selectReconnectSession(nextSessions, previousStoredId)
+
+        if (!selected) {
+          activeStoredRef.current = null
+          activeRuntimeRef.current = null
+          setActiveStoredId(null)
+          setActiveRuntimeId(null)
+          setMessages([])
+
+          return
+        }
+
+        if (!reconnected || selected.id !== previousStoredId) {
+          await showSession(selected, gateway)
+
+          return
+        }
+
+        const runtimeId = runtimesRef.current.get(selected.id)
+
+        if (!runtimeId) {return}
+
+        try {
+          await gateway.request('session.activate', { omit_messages: true, session_id: runtimeId })
+          activeRuntimeRef.current = runtimeId
+          setActiveRuntimeId(runtimeId)
+        } catch {
+          runtimesRef.current.delete(selected.id)
+          activeRuntimeRef.current = null
+          setActiveRuntimeId(null)
+          setTurnRunning(false)
+          await showSession(selected, gateway, true)
+        }
+      },
+      onConnecting: () => {
+        setConnection('connecting')
+        setConnectionMessage('Connecting to the Hermes gateway…')
+      },
+      onDisconnected: () => {
         setConnection('error')
-        setConnectionMessage(error instanceof Error ? error.message : 'Gateway connection failed')
-        reconnectAttempt += 1
-        reconnectTimer = setTimeout(connectOnce, reconnectBackoffDelayMs(reconnectAttempt - 1))
-      })
+        setConnectionMessage('Gateway disconnected — reconnecting…')
+      },
+      onError: error => {
+        if (disposed) {return}
+        setConnection('error')
+        setConnectionMessage(error.message || 'Gateway connection failed')
+      },
+      reconnectDelayMs: reconnectBackoffDelayMs
+    })
 
-      disposeCurrent = () => {
-        active = false
-        unsubscribeReady()
-        unsubscribeTitle()
-        unsubscribeMessages.forEach(unsubscribe => unsubscribe())
-        unsubscribeTools.forEach(unsubscribe => unsubscribe())
-        unsubscribeReasoning.forEach(unsubscribe => unsubscribe())
-        unsubscribeInput.forEach(unsubscribe => unsubscribe())
-        unsubscribeInputExpire()
-        gateway.close()
-      }
-    }
+    const gateway = lifecycle.client
+    gatewayRef.current = gateway
 
-    connectOnce()
+    const unsubscribeReady = gateway.on('gateway.ready', () => { readyReceived = true })
+    const messageTypes = ['message.start', 'message.delta', 'message.interim', 'message.complete'] as const
+
+    const unsubscribeMessages = messageTypes.map(type => gateway.on(type, event => {
+      const runtimeId = activeRuntimeRef.current
+
+      if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+
+      if (event.type === 'message.start') {setTurnRunning(true)}
+
+      if (event.type === 'message.complete') {setTurnRunning(false)}
+      setMessages(current => applyMessageEvent(current, event as GatewayEvent<MessagePayload>, activeProfileRef.current))
+    }))
+
+    const toolTypes = ['tool.start', 'tool.progress', 'tool.complete'] as const
+
+    const unsubscribeTools = toolTypes.map(type => gateway.on(type, event => {
+      const runtimeId = activeRuntimeRef.current
+
+      if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+      setMessages(current => applyToolEvent(current, event as GatewayEvent<ToolPayload>))
+    }))
+
+    const reasoningTypes = ['thinking.delta', 'reasoning.delta', 'reasoning.available'] as const
+
+    const unsubscribeReasoning = reasoningTypes.map(type => gateway.on(type, event => {
+      const runtimeId = activeRuntimeRef.current
+
+      if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+      setMessages(current => applyReasoningEvent(current, event as GatewayEvent<ReasoningPayload>, activeProfileRef.current))
+    }))
+
+    const inputTypes = ['clarify.request', 'approval.request'] as const
+
+    const unsubscribeInput = inputTypes.map(type => gateway.on(type, event => {
+      const runtimeId = activeRuntimeRef.current
+
+      if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+      setMessages(current => applyInputRequestEvent(current, event as GatewayEvent<InputRequestPayload>))
+    }))
+
+    const unsubscribeInputExpire = gateway.on('clarify.expire', event => {
+      const runtimeId = activeRuntimeRef.current
+
+      if (!runtimeId || (event.session_id && event.session_id !== runtimeId)) {return}
+      setMessages(current => applyInputRequestExpireEvent(current, event as GatewayEvent<InputRequestExpirePayload>))
+    })
+
+    const unsubscribeTitle = gateway.on('session.title', () => { void refreshSessions(gateway) })
+    void lifecycle.start()
 
     return () => {
       disposed = true
       openGenerationRef.current += 1
-      clearTimeout(reconnectTimer)
-      disposeCurrent?.()
+      unsubscribeReady()
+      unsubscribeTitle()
+      unsubscribeMessages.forEach(unsubscribe => unsubscribe())
+      unsubscribeTools.forEach(unsubscribe => unsubscribe())
+      unsubscribeReasoning.forEach(unsubscribe => unsubscribe())
+      unsubscribeInput.forEach(unsubscribe => unsubscribe())
+      unsubscribeInputExpire()
+      lifecycle.dispose()
       gatewayRef.current = null
       releasePreviews()
     }
@@ -272,6 +302,7 @@ export function App() {
       activeProfileRef.current = 'default'
       setActiveRuntimeId(created.runtimeId)
       setActiveStoredId(created.storedId)
+      activeStoredRef.current = created.storedId
       releasePreviews()
       setSelectedAttachments([])
       setMessages([])
@@ -296,6 +327,7 @@ export function App() {
 
       if (activeStoredId === session.id) {
         activeRuntimeRef.current = null
+        activeStoredRef.current = null
         setActiveRuntimeId(null)
         setActiveStoredId(null)
         setMessages([])
@@ -512,6 +544,15 @@ export function App() {
       scrollToBottom('instant')
     }
   }, [messages])
+
+  useEffect(() => watchViewportForFollow({
+    follow: () => scrollToBottom('instant'),
+    schedule: callback => {
+      requestAnimationFrame(() => {requestAnimationFrame(callback)})
+    },
+    shouldFollow: () => stickToBottomRef.current,
+    sources: window.visualViewport ? [window, window.visualViewport] : [window]
+  }), [])
 
   const activeSession = sessions.find(session => session.id === activeStoredId)
   const slashQuery = draft.split(/\s/, 1)[0]?.toLowerCase() ?? ''

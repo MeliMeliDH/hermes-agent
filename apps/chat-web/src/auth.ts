@@ -24,6 +24,43 @@ function readBasePath(): string {
 
 export const HERMES_BASE_PATH = readBasePath()
 
+const TOKEN_RELOAD_STORAGE_KEY = 'hermes.chatWebTokenReloadAttempted'
+
+function sessionStorage(): Pick<Storage, 'getItem' | 'removeItem' | 'setItem'> | null {
+  try {
+    return window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+export function clearAuthReloadAttempt(): void {
+  try {
+    sessionStorage()?.removeItem(TOKEN_RELOAD_STORAGE_KEY)
+  } catch {
+    // Storage can be blocked in browser privacy modes.
+  }
+}
+
+export function attemptAuthReloadOnce(): boolean {
+  const storage = sessionStorage()
+
+  try {
+    if (storage?.getItem(TOKEN_RELOAD_STORAGE_KEY) === '1') {return false}
+    storage?.setItem(TOKEN_RELOAD_STORAGE_KEY, '1')
+  } catch {
+    // Reload remains the only recovery when storage is unavailable.
+  }
+
+  window.location.reload()
+
+  return true
+}
+
+export function maybeReloadForLoopbackWsAuthFailure(code: number): boolean {
+  return !window.__HERMES_AUTH_REQUIRED__ && code === 4401 && attemptAuthReloadOnce()
+}
+
 export async function getWsTicket(): Promise<{ ticket: string; ttl_seconds: number }> {
   const response = await fetch(`${readBasePath()}/api/auth/ws-ticket`, {
     credentials: 'include',
@@ -31,6 +68,7 @@ export async function getWsTicket(): Promise<{ ticket: string; ttl_seconds: numb
   })
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {attemptAuthReloadOnce()}
     throw new Error(`/api/auth/ws-ticket: HTTP ${response.status}`)
   }
 

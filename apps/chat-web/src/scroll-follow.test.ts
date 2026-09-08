@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isNearBottom, NEAR_BOTTOM_THRESHOLD_PX } from './scroll-follow'
+import { isNearBottom, NEAR_BOTTOM_THRESHOLD_PX, watchViewportForFollow } from './scroll-follow'
 
 describe('isNearBottom', () => {
   it('is true when scrolled exactly to the bottom', () => {
@@ -29,5 +29,36 @@ describe('isNearBottom', () => {
 
   it('is true when the content does not overflow the viewport at all', () => {
     expect(isNearBottom({ clientHeight: 500, scrollHeight: 400, scrollTop: 0 })).toBe(true)
+  })
+})
+
+describe('watchViewportForFollow', () => {
+  it('follows keyboard/orientation viewport changes only while already pinned', () => {
+    const handlers = new Map<string, () => void>()
+
+    const source = {
+      addEventListener: (type: string, handler: () => void) => { handlers.set(type, handler) },
+      removeEventListener: (type: string) => { handlers.delete(type) }
+    }
+
+    let pinned = true
+    let followed = 0
+
+    const stop = watchViewportForFollow({
+      follow: () => { followed += 1 },
+      schedule: callback => callback(),
+      shouldFollow: () => pinned,
+      sources: [source]
+    })
+
+    handlers.get('resize')?.()
+    expect(followed).toBe(1)
+
+    pinned = false
+    handlers.get('orientationchange')?.()
+    expect(followed).toBe(1)
+
+    stop()
+    expect(handlers.size).toBe(0)
   })
 })
