@@ -39,6 +39,23 @@ describe('historyToBubbles', () => {
     })
   })
 
+  it('restores canonical persisted image and file refs after reopening a session', () => {
+    const [bubble] = historyToBubbles([
+      {
+        role: 'user',
+        text: 'Review these\n@image:`/home/hermes/.hermes/images/upload one.png`\n@file:`attachments/notes one.txt`'
+      }
+    ], 'default')
+
+    expect(bubble).toMatchObject({
+      attachments: [
+        { kind: 'image', mediaPath: '/home/hermes/.hermes/images/upload one.png', name: 'upload one.png' },
+        { kind: 'file', name: 'notes one.txt' }
+      ],
+      text: 'Review these'
+    })
+  })
+
   it('renders an inter-agent delivery as the sending profile instead of the human', () => {
     const bubbles = historyToBubbles(
       [{ role: 'user', text: 'Message from 🤖 Researcher (@research): Findings ready.' }],
@@ -55,6 +72,23 @@ describe('historyToBubbles', () => {
 })
 
 describe('appendLocalMessage', () => {
+  it('adds an optimistic attachment-only user bubble without exposing base64 payloads', () => {
+    const bubbles = appendLocalMessage(
+      [],
+      'user',
+      '',
+      '',
+      now,
+      [{ kind: 'image', name: 'photo.png', url: 'blob:preview' }]
+    )
+
+    expect(bubbles[0]).toMatchObject({
+      attachments: [{ kind: 'image', name: 'photo.png', url: 'blob:preview' }],
+      role: 'user',
+      text: ''
+    })
+  })
+
   it('adds an optimistic user echo and system command output with stable roles', () => {
     let bubbles = appendLocalMessage([], 'user', 'hello', 'hello', now)
     bubbles = appendLocalMessage(bubbles, 'system', '/status', 'Session is healthy.', now)

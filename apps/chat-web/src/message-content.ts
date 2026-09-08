@@ -18,7 +18,7 @@ const DATA_IMAGE_RE = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi
 const IMAGE_LABEL_RE = /\[Image attached at:\s*([^\]]+)\]/gi
 const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/gi
 const HTML_IMAGE_RE = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi
-const REFERENCE_RE = /^@(image|file):(?:"([^"]+)"|(\S+))\s*$/gim
+const REFERENCE_RE = /^@(image|file):(?:`([^`]*)`|"([^"]*)"|'([^']*)'|(\S+))\s*$/gim
 
 export function safeMediaUrl(value: string): string | undefined {
   const url = value.trim()
@@ -100,9 +100,11 @@ export function extractMessageContent(rawText: string): ExtractedMessageContent 
     return ''
   })
 
-  text = text.replace(REFERENCE_RE, (_match, kind: string, quoted: string | undefined, plain: string | undefined) => {
-    const path = quoted || plain || ''
-    attachments.push({ kind: kind === 'image' ? 'image' : 'file', name: basename(path) })
+  text = text.replace(REFERENCE_RE, (_match, kind: string, backtick: string | undefined, quoted: string | undefined, singleQuoted: string | undefined, plain: string | undefined) => {
+    const path = backtick || quoted || singleQuoted || plain || ''
+    attachments.push(kind === 'image'
+      ? { kind: 'image', mediaPath: path, name: basename(path) }
+      : { kind: 'file', name: basename(path) })
 
     return ''
   })

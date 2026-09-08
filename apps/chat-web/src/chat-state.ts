@@ -298,13 +298,15 @@ export function appendLocalMessage(
   role: 'system' | 'user',
   displayText: string,
   body = displayText,
-  now: () => number = () => Date.now() / 1000
+  now: () => number = () => Date.now() / 1000,
+  attachments: MessageAttachment[] = []
 ): MessageBubbleModel[] {
   const text = role === 'system' && displayText !== body ? `${displayText}\n${body}` : body
 
   return [
     ...messages,
     {
+      ...(attachments.length ? { attachments } : {}),
       id: `local-${role}-${now()}-${messages.length}`,
       interim: false,
       role,

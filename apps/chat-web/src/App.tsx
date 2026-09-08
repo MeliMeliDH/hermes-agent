@@ -2,6 +2,7 @@ import type { GatewayEvent } from '@hermes/shared'
 import { reconnectBackoffDelayMs } from '@hermes/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { createSelectedAttachments, releaseAttachmentPreviews, type SelectedAttachment, uploadAndSubmitAttachments } from './attachments'
 import { HERMES_BASE_PATH } from './auth'
 import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, resolveInputRequest, type ToolPayload } from './chat-state'
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
@@ -52,10 +53,12 @@ export function App() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [selectedAttachments, setSelectedAttachments] = useState<SelectedAttachment[]>([])
   const [turnRunning, setTurnRunning] = useState(false)
   const [slashSuggestions, setSlashSuggestions] = useState<SlashSuggestion[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const gatewayRef = useRef<ChatGatewayClient | null>(null)
+  const attachmentPreviewsRef = useRef(new Set<string>())
   const runtimesRef = useRef(new Map<string, string>())
   const activeRuntimeRef = useRef<string | null>(null)
   const activeProfileRef = useRef('default')
@@ -67,6 +70,11 @@ export function App() {
   const stickToBottomRef = useRef(true)
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
 
+  const releasePreviews = () => {
+    releaseAttachmentPreviews(Array.from(attachmentPreviewsRef.current, previewUrl => ({ previewUrl })))
+    attachmentPreviewsRef.current.clear()
+  }
+
   const showSession = useCallback(async (session: SessionRow, gateway = gatewayRef.current) => {
     if (!gateway) {return}
     const generation = ++openGenerationRef.current
@@ -77,6 +85,8 @@ export function App() {
     activeProfileRef.current = profileName
     setLoadingHistory(true)
     setSessionError(null)
+    releasePreviews()
+    setSelectedAttachments([])
     stickToBottomRef.current = true
     setShowJumpToBottom(false)
 
@@ -244,6 +254,7 @@ export function App() {
       clearTimeout(reconnectTimer)
       disposeCurrent?.()
       gatewayRef.current = null
+      releasePreviews()
     }
   }, [refreshSessions, showSession])
 
@@ -261,6 +272,8 @@ export function App() {
       activeProfileRef.current = 'default'
       setActiveRuntimeId(created.runtimeId)
       setActiveStoredId(created.storedId)
+      releasePreviews()
+      setSelectedAttachments([])
       setMessages([])
       setSessions(current => [draft, ...current.filter(row => row.id !== draft.id)])
     } catch (error) {
@@ -308,20 +321,51 @@ export function App() {
     }
   }
 
+  const handleAttachments = (files: File[]) => {
+    const selected = createSelectedAttachments(files)
+
+    if (selected.attachments.length > 0) {
+      selected.attachments.forEach(attachment => {
+        if (attachment.previewUrl) {attachmentPreviewsRef.current.add(attachment.previewUrl)}
+      })
+      setSelectedAttachments(current => [...current, ...selected.attachments])
+    }
+
+    setSessionError(selected.errors.length > 0 ? selected.errors.join(' ') : null)
+  }
+
+  const handleRemoveAttachment = (id: string) => {
+    setSelectedAttachments(current => {
+      const removed = current.find(attachment => attachment.id === id)
+
+      if (removed?.previewUrl) {
+        releaseAttachmentPreviews([removed])
+        attachmentPreviewsRef.current.delete(removed.previewUrl)
+      }
+
+      return current.filter(attachment => attachment.id !== id)
+    })
+  }
+
+  const updateSelectedAttachment = (update: SelectedAttachment) => {
+    setSelectedAttachments(current => current.map(attachment => attachment.id === update.id ? update : attachment))
+  }
+
   const handleSubmit = async () => {
     const gateway = gatewayRef.current
     const input = draft.trim()
+    const attachments = selectedAttachments
 
-    if (!gateway || !activeStoredId || !input || turnRunning) {return}
+    if (!gateway || !activeStoredId || (!input && attachments.length === 0) || turnRunning) {return}
 
-    if (['/new', '/reset'].includes(input.toLowerCase())) {
+    if (attachments.length === 0 && ['/new', '/reset'].includes(input.toLowerCase())) {
       setDraft('')
       await handleCreate()
 
       return
     }
 
-    if (['/stop', '/interrupt'].includes(input.toLowerCase())) {
+    if (attachments.length === 0 && ['/stop', '/interrupt'].includes(input.toLowerCase())) {
       setDraft('')
       await handleInterrupt()
 
@@ -361,9 +405,40 @@ export function App() {
       }
     }
 
+    setSessionError(null)
+
+    if (attachments.length > 0) {
+      try {
+        const result = await uploadAndSubmitAttachments(gateway, runtimeId, attachments, input, updateSelectedAttachment)
+
+        const previews = attachments.map(attachment => ({
+          kind: attachment.kind === 'image' ? 'image' as const : 'file' as const,
+          name: attachment.file.name || 'attachment',
+          ...(attachment.previewUrl ? { url: attachment.previewUrl } : {})
+        }))
+
+        setMessages(current => appendLocalMessage(current, 'user', input, input, undefined, previews))
+        setDraft('')
+        setSelectedAttachments([])
+        setTurnRunning(result.status === 'streaming')
+
+        if (result.status !== 'streaming') {
+          setMessages(current => appendLocalMessage(current, 'system', input, `Gateway status: ${result.status}`))
+        }
+
+        void refreshSessions(gateway)
+      } catch (error) {
+        setTurnRunning(false)
+        const message = error instanceof Error ? error.message : 'Could not upload attachment'
+        setSessionError(message)
+        setMessages(current => appendLocalMessage(current, 'system', input || 'Attachment', `Error: ${message}`))
+      }
+
+      return
+    }
+
     const plainPrompt = !input.startsWith('/')
     setDraft('')
-    setSessionError(null)
 
     if (plainPrompt) {
       setMessages(current => appendLocalMessage(current, 'user', input))
@@ -544,11 +619,14 @@ export function App() {
           >↓ New messages</button>
         )}
         <MessageComposer
+          attachments={selectedAttachments}
           busy={turnRunning}
           disabled={connection !== 'connected' || !activeStoredId || loadingHistory}
           draft={draft}
+          onAttachments={handleAttachments}
           onChange={setDraft}
           onInterrupt={() => void handleInterrupt()}
+          onRemoveAttachment={handleRemoveAttachment}
           onSubmit={() => void handleSubmit()}
           suggestions={visibleSlashSuggestions}
         />
