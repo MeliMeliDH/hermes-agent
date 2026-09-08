@@ -51,6 +51,21 @@ describe('MessageBubble', () => {
     expect(html).toContain('report.pdf')
   })
 
+  it('renders sandbox file links as authenticated dashboard downloads', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble
+        message={{
+          ...assistant,
+          text: '[Download hello-world.md](sandbox:/home/hermes/.hermes/hermes-agent/hello-world.md)'
+        }}
+      />
+    )
+
+    expect(html).toContain('href="/api/files/download?path=%2Fhome%2Fhermes%2F.hermes%2Fhermes-agent%2Fhello-world.md"')
+    expect(html).toContain('download=""')
+    expect(html).not.toContain('sandbox:')
+  })
+
   it('uses a monogram when an avatar asset is unavailable', () => {
     const html = renderToStaticMarkup(<MessageBubble message={{ ...assistant, profileName: 'research', senderName: 'research' }} />)
     expect(html).toContain('aria-label="research avatar"')

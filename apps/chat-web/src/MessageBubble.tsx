@@ -11,16 +11,36 @@ interface MessageBubbleProps {
   onInputResponse?: (request: InputRequestModel, response: InputResponse) => Promise<void>
 }
 
-const INLINE_MARKDOWN = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g
+const INLINE_MARKDOWN = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|sandbox:\/)[^\s)]+\))/g
+
+function sandboxDownloadHref(target: string): string | undefined {
+  if (!target.startsWith('sandbox:/')) {return undefined}
+  const path = target.slice('sandbox:'.length)
+
+  if (!path.startsWith('/')) {return undefined}
+  const params = new URLSearchParams({ path })
+
+  if (typeof window !== 'undefined' && !window.__HERMES_AUTH_REQUIRED__ && window.__HERMES_SESSION_TOKEN__) {
+    params.set('token', window.__HERMES_SESSION_TOKEN__)
+  }
+
+  return `${HERMES_BASE_PATH}/api/files/download?${params.toString()}`
+}
 
 function inlineMarkdown(text: string): ReactNode[] {
   return text.split(INLINE_MARKDOWN).filter(Boolean).map((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) {return <strong key={index}>{part.slice(2, -2)}</strong>}
 
     if (part.startsWith('`') && part.endsWith('`')) {return <code key={index}>{part.slice(1, -1)}</code>}
-    const link = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/.exec(part)
+    const link = /^\[([^\]]+)\]\(((?:https?:\/\/|sandbox:\/)[^\s)]+)\)$/.exec(part)
 
-    if (link) {return <a href={link[2]} key={index} rel="noreferrer" target="_blank">{link[1]}</a>}
+    if (link) {
+      const sandboxHref = sandboxDownloadHref(link[2]!)
+
+      if (sandboxHref) {return <a download href={sandboxHref} key={index}>{link[1]}</a>}
+
+      return <a href={link[2]} key={index} rel="noreferrer" target="_blank">{link[1]}</a>
+    }
 
     return <Fragment key={index}>{part}</Fragment>
   })
