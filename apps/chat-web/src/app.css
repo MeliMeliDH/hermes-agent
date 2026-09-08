@@ -787,7 +787,11 @@
 
 @media (max-width: 720px) {
   .chat-shell {
-    grid-template-columns: minmax(10rem, 38vw) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-shell[data-sidebar-collapsed='false'] .conversation {
+    display: none;
   }
 
   .session-sidebar,

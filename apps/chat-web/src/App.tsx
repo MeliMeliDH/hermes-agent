@@ -14,7 +14,7 @@ import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { isNearBottom, watchViewportForFollow } from './scroll-follow'
 import { createSession, deleteSession, ensureSessionRuntime, openSession, selectReconnectSession, type SessionRow } from './sessions'
-import { loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
+import { isCompactChatViewport, loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
 interface SessionListResult {
   sessions?: SessionRow[]
@@ -83,6 +83,12 @@ export function App() {
     preserveAttachments = false
   ) => {
     if (!gateway) {return}
+
+    if (isCompactChatViewport(window.innerWidth)) {
+      setSidebarCollapsed(true)
+      persistSidebarCollapsed(true)
+    }
+
     const generation = ++openGenerationRef.current
     const profileName = session.profile || 'default'
     setActiveStoredId(session.id)
@@ -307,6 +313,11 @@ export function App() {
       setSelectedAttachments([])
       setMessages([])
       setSessions(current => [draft, ...current.filter(row => row.id !== draft.id)])
+
+      if (isCompactChatViewport(window.innerWidth)) {
+        setSidebarCollapsed(true)
+        persistSidebarCollapsed(true)
+      }
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : 'Could not create session')
     }

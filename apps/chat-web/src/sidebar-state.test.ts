@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
+import { isCompactChatViewport, loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
 function storageWith(value: string | null = null) {
   return {
@@ -13,6 +13,11 @@ describe('sidebar presentation state', () => {
   it('defaults expanded and restores a persisted collapsed value', () => {
     expect(loadSidebarCollapsed(storageWith(null))).toBe(false)
     expect(loadSidebarCollapsed(storageWith('true'))).toBe(true)
+  })
+
+  it('treats phone widths as a single-pane session flow', () => {
+    expect(isCompactChatViewport(720)).toBe(true)
+    expect(isCompactChatViewport(721)).toBe(false)
   })
 
   it('persists the explicit state and tolerates unavailable storage', () => {

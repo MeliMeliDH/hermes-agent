@@ -5,6 +5,10 @@ interface SidebarStorage {
 
 const SIDEBAR_STORAGE_KEY = 'hermes.chatWeb.sidebarCollapsed'
 
+export function isCompactChatViewport(viewportWidth: number): boolean {
+  return viewportWidth <= 720
+}
+
 function browserStorage(): SidebarStorage | undefined {
   if (typeof window === 'undefined') {return undefined}
 
