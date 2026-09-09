@@ -8,6 +8,7 @@ import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEven
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
 import { createGatewayConnectionLifecycle } from './connection-lifecycle'
 import { ChatGatewayClient } from './gateway'
+import { HubLink } from './HubLink'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
 import { respondToInputRequest } from './input-requests'
 import { MessageBubble } from './MessageBubble'
@@ -604,7 +605,10 @@ export function App() {
             <p className="eyebrow">Hermes Chat</p>
             <h1>Sessions</h1>
           </div>
-          <button aria-label="Create session" className="button button-primary new-session-button" disabled={connection !== 'connected'} onClick={() => void handleCreate()}>+</button>
+          <div className="sidebar-heading-actions">
+            <HubLink />
+            <button aria-label="Create session" className="button button-primary new-session-button" disabled={connection !== 'connected'} onClick={() => void handleCreate()}>+</button>
+          </div>
         </div>
         <div aria-live="polite" className="connection-status" data-state={connection}>
           <span aria-hidden className="status-dot" />
@@ -654,7 +658,10 @@ export function App() {
               <h2>{activeSession ? sessionTitle(activeSession) : 'Select a session'}</h2>
             </div>
           </div>
-          {activeSession && <span className="profile-pill">{displayNameForProfile(activeSession.profile || 'default')}</span>}
+          <div className="conversation-actions">
+            {activeSession && <span className="profile-pill">{displayNameForProfile(activeSession.profile || 'default')}</span>}
+            <HubLink className="conversation-hub-link" />
+          </div>
         </header>
 
         {sessionError && <div className="session-error" role="alert">{sessionError}</div>}

@@ -43,6 +43,13 @@
   gap: var(--space-3);
 }
 
+.sidebar-heading-actions,
+.conversation-actions {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+}
+
 .sidebar-heading h1,
 .conversation-heading h2 {
   font-size: var(--font-size-xl);
@@ -220,6 +227,29 @@
 .sidebar-toggle:hover {
   background: var(--color-bg-subtle);
   color: var(--color-text);
+}
+
+.hub-link {
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  padding: var(--space-1) var(--space-2);
+  text-decoration: none;
+}
+
+.hub-link:hover,
+.hub-link:focus-visible {
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.button.conversation-hub-link {
+  display: none;
+}
+
+.chat-shell[data-sidebar-collapsed='true'] .button.conversation-hub-link {
+  display: inline-flex;
 }
 
 .profile-pill,
