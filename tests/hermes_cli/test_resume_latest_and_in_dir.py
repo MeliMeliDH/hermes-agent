@@ -229,3 +229,58 @@ def test_in_dir_expands_user_home(main_mod, launched, monkeypatch, tmp_path):
         assert os.getcwd() == str((home / "proj").resolve())
     finally:
         os.chdir(start)
+
+
+def test_top_level_oneshot_applies_in_dir_before_agent_start(main_mod, monkeypatch, tmp_path):
+    """Legacy ``hermes --in DIR -z PROMPT`` must honor the workspace flag.
+
+    Top-level ``-z`` bypasses ``cmd_chat``, so this pins the cwd contract at
+    its separate dispatch boundary rather than relying on chat-path coverage.
+    """
+    import os
+
+    target = tmp_path / "oneshot-workspace"
+    target.mkdir()
+    start = os.getcwd()
+    seen = {}
+    args = _args(in_dir=str(target))
+    args.oneshot = "probe"
+    args.skills = None
+    args.usage_file = None
+
+    monkeypatch.setattr(main_mod, "_confirm_startup_expensive_model_override", lambda _args: None)
+
+    def fake_run(prompt, **kwargs):
+        seen["prompt"] = prompt
+        seen["cwd"] = os.getcwd()
+
+    monkeypatch.setattr(main_mod, "_run_and_exit_oneshot", fake_run)
+
+    try:
+        main_mod._run_oneshot_from_args(args)
+    finally:
+        os.chdir(start)
+
+    assert seen == {"prompt": "probe", "cwd": str(target.resolve())}
+    assert args.no_restore_cwd is True
+
+
+def test_apply_in_dir_is_idempotent_for_relative_paths(main_mod, monkeypatch, tmp_path):
+    """Early startup application plus later chat dispatch must not chdir twice."""
+    import os
+
+    target = tmp_path / "relative-workspace"
+    target.mkdir()
+    start = os.getcwd()
+    args = _args(in_dir="relative-workspace")
+
+    try:
+        os.chdir(tmp_path)
+        main_mod._apply_in_dir(args)
+        main_mod._apply_in_dir(args)
+        assert os.getcwd() == str(target.resolve())
+    finally:
+        os.chdir(start)
+
+    assert args.no_restore_cwd is True
+    assert args._in_dir_applied is True

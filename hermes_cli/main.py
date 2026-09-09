@@ -1414,6 +1414,8 @@ def _resolve_continue_arg(args, *, use_tui: bool) -> None:
 
 def _apply_in_dir(args) -> None:
     """--in DIR: chdir first so workspace-scoped lookups key off DIR; pins the session there."""
+    if getattr(args, "_in_dir_applied", False):
+        return
     in_dir = getattr(args, "in_dir", None)
     if not in_dir:
         return
@@ -1431,6 +1433,7 @@ def _apply_in_dir(args) -> None:
         print(f"Error: cannot enter --in directory {in_dir}: {e}")
         sys.exit(1)
     args.no_restore_cwd = True
+    args._in_dir_applied = True
 
 
 def _import_foreign_resume(args) -> None:
@@ -2878,6 +2881,7 @@ def _run_oneshot_from_args(args) -> None:
 
     Bypasses cli.py entirely; _run_and_exit_oneshot never returns.
     """
+    _apply_in_dir(args)
     _confirm_startup_expensive_model_override(args)
     _run_and_exit_oneshot(
         args.oneshot,
@@ -2982,6 +2986,7 @@ def _try_fast_chat_launch() -> bool:
     if getattr(args, "command", None) not in {None, "chat"}:
         return False
 
+    _apply_in_dir(args)
     if getattr(args, "yolo", False):
         os.environ["HERMES_YOLO_MODE"] = "1"
     _prepare_agent_startup(args)
@@ -3027,6 +3032,7 @@ def _try_termux_fast_cli_launch() -> bool:
         _print_version_info(check_updates=True)
         return True
 
+    _apply_in_dir(args)
     if getattr(args, "oneshot", None):
         _prepare_agent_startup(args)
         _run_oneshot_from_args(args)
@@ -3375,6 +3381,9 @@ def main():
     if args.version:
         cmd_version(args)
         return
+
+    if getattr(args, "oneshot", None) or getattr(args, "command", None) in {None, "chat"}:
+        _apply_in_dir(args)
 
     # --yolo must be set *before* plugin discovery: tools.approval freezes
     # _YOLO_MODE_FROZEN at import; set later (inside cmd_chat) it does nothing.
