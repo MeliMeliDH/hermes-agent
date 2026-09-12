@@ -5082,6 +5082,61 @@ class TestServeIndexMissingIndex:
         assert 'window.__HERMES_SESSION_TOKEN__="after-mount"' in resp.text
 
 
+class TestChatWebSpaMount:
+    """The separate chat client is served without replacing the dashboard SPA."""
+
+    @staticmethod
+    def _client(tmp_path, monkeypatch, *, gated=False):
+        from fastapi import FastAPI
+        from starlette.testclient import TestClient
+        import hermes_cli.web_server as ws
+
+        dashboard_dist = tmp_path / "web_dist"
+        (dashboard_dist / "assets").mkdir(parents=True)
+        (dashboard_dist / "index.html").write_text(
+            "<html><head></head><body>DASHBOARD-SPA</body></html>", encoding="utf-8"
+        )
+        chat_dist = tmp_path / "chat_web_dist"
+        (chat_dist / "assets").mkdir(parents=True)
+        (chat_dist / "index.html").write_text(
+            "<html><head></head><body>CHAT-WEB-SPA</body></html>", encoding="utf-8"
+        )
+        (chat_dist / "assets" / "chat-abc123.js").write_text(
+            "console.log('chat');", encoding="utf-8"
+        )
+        monkeypatch.setattr(ws, "WEB_DIST", dashboard_dist)
+        monkeypatch.setattr(_web_server_dashboard, "CHAT_WEB_DIST", chat_dist)
+        monkeypatch.delenv("HERMES_SERVE_HEADLESS", raising=False)
+        spa_app = FastAPI()
+        spa_app.state.auth_required = gated
+        _web_server_dashboard.mount_spa(spa_app)
+        return TestClient(spa_app), ws
+
+    def test_chat_ui_uses_its_own_index_and_assets(self, tmp_path, monkeypatch):
+        client, _ws = self._client(tmp_path, monkeypatch)
+
+        index = client.get("/chat-ui")
+        nested = client.get("/chat-ui/sessions/example")
+        asset = client.get("/chat-ui/assets/chat-abc123.js")
+
+        assert index.status_code == 200
+        assert "CHAT-WEB-SPA" in index.text
+        assert "DASHBOARD-SPA" not in index.text
+        assert "CHAT-WEB-SPA" in nested.text
+        assert asset.status_code == 200
+        assert "console.log('chat')" in asset.text
+
+    def test_chat_ui_injects_current_gated_auth_mode(self, tmp_path, monkeypatch):
+        client, ws = self._client(tmp_path, monkeypatch, gated=True)
+
+        resp = client.get("/chat-ui")
+
+        assert resp.status_code == 200
+        assert "window.__HERMES_AUTH_REQUIRED__=true" in resp.text
+        assert "window.__HERMES_BASE_PATH__=\"\"" in resp.text
+        assert ws._SESSION_TOKEN not in resp.text
+
+
 class TestHeadlessServeTokenPage:
     """Headless `hermes serve` must serve the Desktop token handshake page
     at `/` when the dashboard auth gate is off (#94227).

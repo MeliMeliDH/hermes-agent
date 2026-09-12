@@ -112,3 +112,7 @@ export {
   type ResolveGatewayWsUrlDeps,
   type WebSocketAuthParam
 } from './websocket-url'
+export {
+  reconnectBackoffDelayMs,
+  type ReconnectBackoffOptions
+} from './reconnect-backoff'
