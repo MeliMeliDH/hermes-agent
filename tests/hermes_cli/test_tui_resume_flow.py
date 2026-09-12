@@ -153,6 +153,14 @@ def test_oneshot_wires_session_db_for_recall(monkeypatch):
     """hermes -z bypasses HermesCLI, but recall still needs SessionDB."""
     from hermes_cli.oneshot import _run_agent
 
+    # Pre-import tools.terminal_tool (and its approval_context -> hermes_cli.config
+    # dependency chain) BEFORE faking out hermes_cli.config below. _run_agent does
+    # a lazy `from tools.terminal_tool import register_task_env_overrides` to scope
+    # the oneshot's cwd override to its task_id; if that import happens for the
+    # first time after hermes_cli.config is faked out, it pulls in the fake (which
+    # lacks cfg_get) instead of the real module already cached in sys.modules.
+    import tools.terminal_tool  # noqa: F401
+
     captured = {}
     sentinel_db = object()
 
