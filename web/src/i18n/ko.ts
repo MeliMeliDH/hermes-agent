@@ -141,6 +141,7 @@ export const ko: Translations = {
     startConversation: "대화를 시작하면 여기에 표시됩니다",
     noMessages: "메시지가 없습니다",
     untitledSession: "제목 없는 세션",
+    mostRecent: "최근",
     deleteSession: "세션 삭제",
     confirmDeleteTitle: "세션을 삭제하시겠습니까?",
     confirmDeleteMessage:

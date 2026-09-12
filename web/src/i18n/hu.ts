@@ -141,6 +141,7 @@ export const hu: Translations = {
     startConversation: "Indítson egy beszélgetést, hogy itt megjelenjen",
     noMessages: "Nincsenek üzenetek",
     untitledSession: "Névtelen munkamenet",
+    mostRecent: "Legutóbbi",
     deleteSession: "Munkamenet törlése",
     confirmDeleteTitle: "Törli a munkamenetet?",
     confirmDeleteMessage:

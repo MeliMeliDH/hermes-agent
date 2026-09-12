@@ -141,6 +141,7 @@ export const ru: Translations = {
     startConversation: "Начните разговор, чтобы увидеть его здесь",
     noMessages: "Нет сообщений",
     untitledSession: "Сессия без названия",
+    mostRecent: "Последняя",
     deleteSession: "Удалить сессию",
     confirmDeleteTitle: "Удалить сессию?",
     confirmDeleteMessage:

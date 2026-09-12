@@ -141,6 +141,7 @@ export const ga: Translations = {
     startConversation: "Tosaigh comhrá chun é a fheiceáil anseo",
     noMessages: "Gan teachtaireachtaí",
     untitledSession: "Seisiún gan teideal",
+    mostRecent: "An ceann is déanaí",
     deleteSession: "Scrios an seisiún",
     confirmDeleteTitle: "Scrios an seisiún?",
     confirmDeleteMessage:

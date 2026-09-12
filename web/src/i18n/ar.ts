@@ -139,6 +139,7 @@ export const ar = defineLocale({
     startConversation: "ابدأ محادثة لتظهر هنا",
     noMessages: "لا توجد رسائل",
     untitledSession: "جلسة بدون عنوان",
+    mostRecent: "الأحدث",
     deleteSession: "حذف الجلسة",
     confirmDeleteTitle: "حذف الجلسة؟",
     confirmDeleteMessage:

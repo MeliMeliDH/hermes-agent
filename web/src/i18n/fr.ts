@@ -141,6 +141,7 @@ export const fr: Translations = {
     startConversation: "Démarrez une conversation pour la voir ici",
     noMessages: "Aucun message",
     untitledSession: "Session sans titre",
+    mostRecent: "La plus récente",
     deleteSession: "Supprimer la session",
     confirmDeleteTitle: "Supprimer la session ?",
     confirmDeleteMessage:

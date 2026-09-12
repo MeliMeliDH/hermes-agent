@@ -52,15 +52,69 @@ function click(el: Element | null) {
 
 const button = (label: string) => document.querySelector(`button[aria-label="${label}"]`);
 
-async function renderSessionsPage(rows: Record<string, unknown>[]) {
+interface SessionsResponse {
+  sessions: Record<string, unknown>[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function sessionsResponse(sessions: Record<string, unknown>[]): SessionsResponse {
+  return { sessions, total: sessions.length, limit: 1, offset: 0 };
+}
+
+interface SessionsPageFixture {
+  pageTwo?: Record<string, unknown>[];
+  recent?: Record<string, unknown>[];
+  recentLookup?: (scope: object) => Promise<SessionsResponse>;
+  search?: Record<string, unknown>[];
+  total?: number;
+}
+
+async function renderSessionsPage(
+  rows: Record<string, unknown>[],
+  fixture: SessionsPageFixture = {},
+) {
   // Page list uses limit 20; the overview tab's recent-cards fetch uses 50 —
   // keep the overview empty so the list view (with row actions) renders.
-  apiMocks.getSessions.mockImplementation(async (limit: number) => ({
-    sessions: limit >= 50 ? [] : rows,
-    total: limit >= 50 ? 0 : rows.length,
-    limit,
-    offset: 0,
-  }));
+  apiMocks.getSessions.mockImplementation(
+    async (limit: number, offset: number, options: object, order?: string) => {
+      if (order === "recent" && fixture.recentLookup) {
+        return fixture.recentLookup(options);
+      }
+      const sessions =
+        order === "recent"
+          ? (fixture.recent ?? rows.slice(0, 1))
+          : limit >= 50
+            ? []
+            : offset >= 20
+              ? (fixture.pageTwo ?? [])
+              : rows;
+      return {
+        sessions,
+        total: limit >= 50 ? 0 : (fixture.total ?? rows.length),
+        limit,
+        offset,
+      };
+    },
+  );
+  apiMocks.searchSessions.mockResolvedValue({ results: fixture.search ?? [] });
   const [{ default: SessionsPage }, { I18nProvider }, { SystemActionsProvider }, { ProfileProvider }, { PageHeaderProvider }] =
     await Promise.all([
       import("./SessionsPage"),
@@ -115,7 +169,163 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root?.unmount());
   container?.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("SessionsPage most recent session", () => {
+  it("uses the globally recent result and keeps the Live badge", async () => {
+    const globalRecent = {
+      id: "global-recent", profile: "default", source: "cli", model: null, title: "Global recent", started_at: 1,
+      ended_at: null, last_active: 10, is_active: true, message_count: 3, tool_call_count: 0, input_tokens: 1,
+      output_tokens: 1, preview: "new",
+    };
+    const pageLocalMax = {
+      id: "page-local-max", profile: "default", source: "cli", model: null, title: "Page local max", started_at: 2,
+      ended_at: null, last_active: 999, is_active: false, message_count: 2, tool_call_count: 0, input_tokens: 1,
+      output_tokens: 1, preview: "old",
+    };
+    await renderSessionsPage([pageLocalMax, globalRecent], { recent: [globalRecent] });
+
+    await waitFor(() => document.body.textContent?.includes("Most recent") ?? false);
+    const pageCall = apiMocks.getSessions.mock.calls.find(
+      ([limit, , , order]) => limit === 20 && order === undefined,
+    );
+    const recentCall = apiMocks.getSessions.mock.calls.find(
+      ([limit, , , order]) => limit === 1 && order === "recent",
+    );
+    expect(recentCall).toBeDefined();
+    expect(recentCall?.[2]).toBe(pageCall?.[2]);
+    expect(document.body.textContent?.match(/Most recent/g)).toHaveLength(1);
+    const globalRow = Array.from(document.querySelectorAll("div.cursor-pointer")).find(
+      (row) => row.textContent?.includes("Global recent"),
+    );
+    const localRow = Array.from(document.querySelectorAll("div.cursor-pointer")).find(
+      (row) => row.textContent?.includes("Page local max"),
+    );
+    expect(globalRow?.textContent).toContain("Most recent");
+    expect(globalRow?.textContent).toContain("Live");
+    expect(localRow?.textContent).not.toContain("Most recent");
+  });
+
+  it("orders polling results, isolates scopes, and clears only current failures", async () => {
+    const staleSameScope = {
+      id: "stale-same-scope", profile: "default", source: "cli", model: null, title: "Stale same scope", started_at: 1,
+      ended_at: null, last_active: 10, is_active: false, message_count: 2, tool_call_count: 0, input_tokens: 1,
+      output_tokens: 1, preview: "stale",
+    };
+    const newerSameScope = {
+      id: "newer-same-scope", profile: "default", source: "cli", model: null, title: "Newer same scope", started_at: 2,
+      ended_at: null, last_active: 20, is_active: false, message_count: 2, tool_call_count: 0, input_tokens: 1,
+      output_tokens: 1, preview: "newer",
+    };
+    const currentScope = {
+      id: "current-scope", session_id: "current-scope", profile: "default", source: "cron", model: null,
+      title: "Current scope", started_at: 3, ended_at: null, last_active: 30, is_active: false, message_count: 3,
+      tool_call_count: 0, input_tokens: 1, output_tokens: 1, preview: "needle", snippet: "needle",
+    };
+    const pageTwo = {
+      id: "page-two-local-max", profile: "default", source: "cron", model: null, title: "Page two local max", started_at: 4,
+      ended_at: null, last_active: 999, is_active: false, message_count: 2, tool_call_count: 0, input_tokens: 1,
+      output_tokens: 1, preview: "second",
+    };
+    const lookups: Array<{ scope: object; result: Deferred<SessionsResponse> }> = [];
+    let pollOverview: (() => void) | undefined;
+    const nativeSetInterval = globalThis.setInterval;
+    vi.spyOn(globalThis, "setInterval").mockImplementation(
+      ((handler: TimerHandler, timeout?: number) => {
+        if (timeout === 5000 && typeof handler === "function") {
+          pollOverview = handler as () => void;
+          return 1;
+        }
+        return nativeSetInterval(handler, timeout);
+      }) as typeof setInterval,
+    );
+    const poll = async () => {
+      const callback = pollOverview;
+      if (!callback) throw new Error("overview poll was not installed");
+      await act(async () => callback());
+    };
+    const settle = async (
+      request: Deferred<SessionsResponse>,
+      sessions?: Record<string, unknown>[],
+    ) => {
+      await act(async () => {
+        if (sessions) {
+          request.resolve(sessionsResponse(sessions));
+          await request.promise;
+        } else {
+          request.reject(new Error("recent lookup failed"));
+          await request.promise.catch(() => {});
+        }
+      });
+    };
+
+    apiMocks.getSessionStats.mockReturnValue(new Promise(() => {}));
+    await renderSessionsPage([staleSameScope, newerSameScope, currentScope], {
+      pageTwo: [pageTwo],
+      search: [pageTwo, currentScope],
+      total: 21,
+      recentLookup: (scope) => {
+        const result = deferred<SessionsResponse>();
+        lookups.push({ scope, result });
+        return result.promise;
+      },
+    });
+    await waitFor(() => lookups.length === 1);
+
+    await poll();
+    await waitFor(() => lookups.length === 2);
+    expect(lookups[1].scope).toBe(lookups[0].scope);
+    await settle(lookups[1].result, [newerSameScope]);
+    await waitFor(() => document.body.textContent?.includes("Most recent") ?? false);
+    expect(document.body.textContent).toContain("Newer same scopeMost recent");
+    await settle(lookups[0].result, [staleSameScope]);
+    expect(document.body.textContent).toContain("Newer same scopeMost recent");
+    expect(document.body.textContent).not.toContain("Stale same scopeMost recent");
+
+    await poll();
+    await waitFor(() => lookups.length === 3);
+    const automation = Array.from(document.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.trim() === "Automation",
+    );
+    await act(async () => click(automation ?? null));
+    await waitFor(() => lookups.length === 4);
+    expect(lookups[3].scope).not.toBe(lookups[2].scope);
+    await settle(lookups[3].result, [currentScope]);
+    expect(document.body.textContent).toContain("Current scopeMost recent");
+    await settle(lookups[2].result, [staleSameScope]);
+    expect(document.body.textContent).toContain("Current scopeMost recent");
+    expect(document.body.textContent).not.toContain("Stale same scopeMost recent");
+
+    await poll();
+    await waitFor(() => lookups.length === 5);
+    await settle(lookups[4].result);
+    expect(document.body.textContent).not.toContain("Most recent");
+
+    await poll();
+    await poll();
+    await waitFor(() => lookups.length === 7);
+    await settle(lookups[6].result, [currentScope]);
+    await settle(lookups[5].result);
+    expect(document.body.textContent?.match(/Most recent/g)).toHaveLength(1);
+    expect(document.body.textContent).toContain("Current scopeMost recent");
+
+    await act(async () => click(button("Next page")));
+    await waitFor(() => document.body.textContent?.includes("Page two local max") ?? false);
+    expect(document.body.textContent).not.toContain("Most recent");
+
+    const input = document.querySelector<HTMLInputElement>('input[placeholder="Search message content..."]');
+    if (!input) throw new Error("search input not rendered");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "needle");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await waitFor(() => document.body.textContent?.includes("Current scope") ?? false);
+    expect(document.body.textContent?.match(/Most recent/g)).toHaveLength(1);
+    expect(document.body.textContent).toContain("Current scopeMost recent");
+    expect(document.body.textContent).not.toContain("Page two local maxMost recent");
+  });
 });
 
 describe("SessionsPage per-row profile routing (#99387)", () => {

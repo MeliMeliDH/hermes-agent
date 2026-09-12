@@ -141,6 +141,7 @@ export const af: Translations = {
     startConversation: "Begin 'n gesprek om dit hier te sien",
     noMessages: "Geen boodskappe",
     untitledSession: "Sessie sonder titel",
+    mostRecent: "Jongste",
     deleteSession: "Skrap sessie",
     confirmDeleteTitle: "Skrap sessie?",
     confirmDeleteMessage:

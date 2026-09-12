@@ -141,6 +141,7 @@ export const de: Translations = {
     startConversation: "Starte eine Unterhaltung, um sie hier zu sehen",
     noMessages: "Keine Nachrichten",
     untitledSession: "Sitzung ohne Titel",
+    mostRecent: "Neueste",
     deleteSession: "Sitzung löschen",
     confirmDeleteTitle: "Sitzung löschen?",
     confirmDeleteMessage:

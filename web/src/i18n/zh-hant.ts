@@ -141,6 +141,7 @@ export const zhHant: Translations = {
     startConversation: "開始對話後將顯示於此",
     noMessages: "尚無訊息",
     untitledSession: "未命名工作階段",
+    mostRecent: "最新",
     deleteSession: "刪除工作階段",
     confirmDeleteTitle: "刪除工作階段？",
     confirmDeleteMessage:
