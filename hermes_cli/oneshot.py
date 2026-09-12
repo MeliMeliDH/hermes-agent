@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
@@ -256,9 +257,9 @@ def run_oneshot(
             real_stdout.write("\n")
         real_stdout.flush()
 
+    if result.get("failed") or result.get("partial"):
+        return 2
     if not (response or "").strip():
-        if result.get("failed") or result.get("partial"):
-            return 2
         real_stderr.write("hermes -z: no final response was produced; treating the run as failed.\n")
         real_stderr.flush()
         return 1
@@ -471,6 +472,7 @@ def _run_agent(
     # The try spans agent construction (not just ``chat``) so the store is always closed, even when
     # ``AIAgent(...)`` raises — the one-shot exit path hard-exits via os._exit and skips finalizers.
     agent = None
+    task_id = None
     try:
         agent = AIAgent(
             api_key=runtime.get("api_key"),
@@ -498,10 +500,23 @@ def _run_agent(
         agent.stream_delta_callback = None
         agent.tool_gen_callback = None
 
-        result = agent.run_conversation(prompt, conversation_history=conversation_history or None)
+        # Normal CLI turns key terminal/file cwd state by ``session_id``.  Oneshot used to
+        # omit task_id, making the turn loop invent an unregistered UUID; relative file paths
+        # then fell through to a stale/configured TERMINAL_CWD even after ``--in`` chdir'd.
+        task_id = str(getattr(agent, "session_id", None) or f"oneshot:{uuid.uuid4().hex}")
+        from tools.terminal_tool import register_task_env_overrides
+
+        register_task_env_overrides(task_id, {"cwd": os.getcwd()})
+        result = agent.run_conversation(
+            prompt, conversation_history=conversation_history or None, task_id=task_id,
+        )
         return (result.get("final_response") or "", result)
     finally:
         _close_agent(agent, session_db)
+        if task_id is not None:
+            from tools.terminal_tool import clear_task_env_overrides
+
+            clear_task_env_overrides(task_id)
 
 
 def _quietly(what: str, fn) -> None:

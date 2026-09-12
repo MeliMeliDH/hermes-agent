@@ -188,7 +188,7 @@ class TestRunAgentResumeRuntime:
                 captured.update(kwargs)
             def __setattr__(self, name, _value):
                 pass
-            def run_conversation(self, _prompt, conversation_history=None):
+            def run_conversation(self, _prompt, conversation_history=None, task_id=None):
                 captured["history"] = conversation_history
                 return {"final_response": "ok", "session_id": "s1"}
             def close(self):
@@ -230,7 +230,7 @@ class TestRunAgentResumeRuntime:
                 captured.update(kwargs)
             def __setattr__(self, name, _value):
                 pass
-            def run_conversation(self, _prompt, conversation_history=None):
+            def run_conversation(self, _prompt, conversation_history=None, task_id=None):
                 return {"final_response": "ok"}
             def close(self):
                 pass

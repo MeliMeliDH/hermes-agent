@@ -82,10 +82,15 @@ environments/benchmarks/evals/
 
 # Web UI build output
 hermes_cli/web_dist/
+hermes_cli/chat_web_dist/
 # Cross-process web UI build lock (flock target, always empty)
 .web_ui_build.lock
 apps/desktop/build/
 apps/desktop/dist/
+
+# Local credential helper scripts (contain live tokens, never commit)
+.git-credential-helpers/
+hello-world.md
 
 # tsc-emitted artifacts (a stray `tsc -b` compiles into src/, and vite then
 # resolves the stale .js OVER the .tsx — never track these)
