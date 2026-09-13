@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { SelectedAttachment } from './attachments'
-import { MessageComposer } from './MessageComposer'
+import { autoResizeHeight, MessageComposer } from './MessageComposer'
 
 const suggestions = [
   { command: '/status', description: 'Show status', kind: 'command' as const },
@@ -90,5 +90,28 @@ describe('MessageComposer', () => {
 
     expect(html).toContain('Stop response')
     expect(html).toContain('disabled=""')
+  })
+})
+
+describe('autoResizeHeight', () => {
+  it('resets height to auto before measuring, then sets it to the content scroll height', () => {
+    const heights: string[] = []
+
+    const node = {
+      get scrollHeight() {
+        // Simulate a real textarea: scrollHeight reflects content only once
+        // the CSS height has been reset to 'auto', matching why the real
+        // implementation sets 'auto' first rather than reading scrollHeight
+        // against the previous fixed height.
+        return heights.at(-1) === 'auto' ? 84 : 0
+      },
+      style: {
+        set height(value: string) { heights.push(value) }
+      }
+    }
+
+    autoResizeHeight(node as unknown as HTMLTextAreaElement)
+
+    expect(heights).toEqual(['auto', '84px'])
   })
 })

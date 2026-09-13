@@ -1,4 +1,5 @@
 import type { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { filesFromClipboard, filesFromDrop, type SelectedAttachment } from './attachments'
 import type { SlashSuggestion } from './composer'
@@ -24,6 +25,14 @@ function fileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Extracted for unit testing: jsdom/testing-library aren't in this project's
+// test stack (renderToStaticMarkup only, no live DOM), so the height-setting
+// logic itself is verified directly against a fake element shape instead.
+export function autoResizeHeight(node: Pick<HTMLTextAreaElement, 'scrollHeight' | 'style'>): void {
+  node.style.height = 'auto'
+  node.style.height = `${node.scrollHeight}px`
+}
+
 export function MessageComposer({
   attachments = [],
   busy,
@@ -37,6 +46,18 @@ export function MessageComposer({
   suggestions
 }: MessageComposerProps) {
   const hasContent = Boolean(draft.trim() || attachments.length)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // Auto-grow the textarea as content wraps to more lines, up to the
+  // max-height cap in app.css (composer-row textarea), matching Discord's
+  // message box behavior. Resets to a single row first so shrinking on
+  // delete/clear works, not just growing.
+  useEffect(() => {
+    const node = textareaRef.current
+
+    if (!node) {return}
+    autoResizeHeight(node)
+  }, [draft])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -142,6 +163,7 @@ export function MessageComposer({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder="Message Victoria Hermes or type / for commands"
+          ref={textareaRef}
           rows={1}
           value={draft}
         />

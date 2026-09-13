@@ -512,10 +512,11 @@
 }
 
 .composer-row textarea {
-  max-height: calc(var(--space-8) * 2);
+  max-height: calc(var(--space-8) * 4);
   min-height: var(--space-7);
   min-width: 0;
-  resize: vertical;
+  overflow-y: auto;
+  resize: none;
 }
 
 .button {
