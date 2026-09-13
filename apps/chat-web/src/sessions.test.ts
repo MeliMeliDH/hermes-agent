@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { GatewayRequester } from './identity'
-import { createSession, deleteSession, ensureSessionRuntime, loadLastSessionId, openSession, persistLastSessionId, selectReconnectSession } from './sessions'
+import { createSession, deleteSession, ensureSessionRuntime, loadLastSessionId, openSession, persistLastSessionId, selectReconnectSession, selectSessionAfterDelete } from './sessions'
 
 function gatewayWith(responses: Record<string, unknown>) {
   const request = vi.fn(async (method: string): Promise<unknown> => responses[method])
@@ -26,6 +26,23 @@ describe('session helpers', () => {
     expect(selectReconnectSession(sessions, 'selected')?.id).toBe('selected')
     expect(selectReconnectSession(sessions, 'deleted')?.id).toBe('newest')
   })
+
+  it('selects the first surviving session after deleting the active session', () => {
+    const sessions = [
+      { id: 'deleted', title: 'Current' },
+      { id: 'fallback', title: 'Next' },
+      { id: 'older', title: 'Older' }
+    ]
+
+    expect(selectSessionAfterDelete(sessions, 'deleted', 'deleted')).toEqual({
+      remaining: [
+        { id: 'fallback', title: 'Next' },
+        { id: 'older', title: 'Older' }
+      ],
+      next: { id: 'fallback', title: 'Next' }
+    })
+  })
+
 
   it('hydrates a cold stored session through the read-only REST path without resuming it', async () => {
     const gateway = gatewayWith({})

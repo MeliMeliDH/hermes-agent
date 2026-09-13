@@ -47,6 +47,19 @@ export function selectReconnectSession(sessions: SessionRow[], activeStoredId: s
   return sessions.find(session => session.id === activeStoredId) ?? sessions[0]
 }
 
+export function selectSessionAfterDelete(
+  sessions: SessionRow[],
+  deletedSessionId: string,
+  activeStoredId: string | null
+): { next?: SessionRow; remaining: SessionRow[] } {
+  const remaining = sessions.filter(session => session.id !== deletedSessionId)
+
+  return {
+    next: activeStoredId === deletedSessionId ? remaining[0] : undefined,
+    remaining
+  }
+}
+
 export interface SessionHistory {
   count: number
   messages: GatewayHistoryMessage[]

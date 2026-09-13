@@ -14,7 +14,7 @@ import { respondToInputRequest } from './input-requests'
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { IMMEDIATE_SCROLL_BEHAVIOR, isNearBottom, resolveScrollFollowState, scheduleAfterLayout, scheduleFollowAfterLayout, watchContentResizeForFollow, watchViewportForFollow } from './scroll-follow'
-import { createSession, deleteSession, ensureSessionRuntime, loadLastSessionId, openSession, persistLastSessionId, selectReconnectSession, type SessionRow } from './sessions'
+import { createSession, deleteSession, ensureSessionRuntime, loadLastSessionId, openSession, persistLastSessionId, selectReconnectSession, selectSessionAfterDelete, type SessionRow } from './sessions'
 import { isCompactChatViewport, loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
 interface SessionListResult {
@@ -61,6 +61,7 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const gatewayRef = useRef<ChatGatewayClient | null>(null)
   const activeStoredRef = useRef<string | null>(loadLastSessionId())
+  const sessionsRef = useRef<SessionRow[]>([])
   const attachmentPreviewsRef = useRef(new Set<string>())
   const runtimesRef = useRef(new Map<string, string>())
   const activeRuntimeRef = useRef<string | null>(null)
@@ -155,6 +156,7 @@ export function App() {
     if (!gateway) {return []}
     const result = await gateway.request<SessionListResult>('session.list', { limit: 200 })
     const next = result.sessions ?? []
+    sessionsRef.current = next
     setSessions(next)
 
     return next
@@ -317,7 +319,12 @@ export function App() {
       releasePreviews()
       setSelectedAttachments([])
       setMessages([])
-      setSessions(current => [draft, ...current.filter(row => row.id !== draft.id)])
+      setSessions(current => {
+        const next = [draft, ...current.filter(row => row.id !== draft.id)]
+        sessionsRef.current = next
+
+        return next
+      })
 
       if (isCompactChatViewport(window.innerWidth)) {
         setSidebarCollapsed(true)
@@ -338,17 +345,23 @@ export function App() {
       const runtimeId = runtimesRef.current.get(session.id)
       await deleteSession(gateway, session.id, runtimeId)
       runtimesRef.current.delete(session.id)
-      const next = sessions.filter(row => row.id !== session.id)
-      setSessions(next)
+      const deleted = selectSessionAfterDelete(sessionsRef.current, session.id, activeStoredRef.current)
+      sessionsRef.current = deleted.remaining
+      setSessions(deleted.remaining)
 
-      if (activeStoredId === session.id) {
+      if (deleted.next) {
         activeRuntimeRef.current = null
         activeStoredRef.current = null
         setActiveRuntimeId(null)
         setActiveStoredId(null)
         setMessages([])
-
-        if (next[0]) {void showSession(next[0], gateway)}
+        void showSession(deleted.next, gateway)
+      } else if (activeStoredRef.current === session.id) {
+        activeRuntimeRef.current = null
+        activeStoredRef.current = null
+        setActiveRuntimeId(null)
+        setActiveStoredId(null)
+        setMessages([])
       }
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : 'Could not delete session')
