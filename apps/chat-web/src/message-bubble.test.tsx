@@ -71,4 +71,28 @@ describe('MessageBubble', () => {
     expect(html).toContain('aria-label="research avatar"')
     expect(html).toContain('>R<')
   })
+
+  it('renders markdown headings, italics, numbered lists, and blockquotes', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, text: '## Heading\n\nSome *italic* and _also italic_ text.\n\n1. First\n2. Second\n\n> A quoted line' }} />
+    )
+
+    expect(html).toContain('<h4>Heading</h4>')
+    expect(html).toContain('<em>italic</em>')
+    expect(html).toContain('<em>also italic</em>')
+    expect(html).toContain('<ol>')
+    expect(html).toContain('<li>First</li>')
+    expect(html).toContain('<li>Second</li>')
+    expect(html).toContain('<blockquote>A quoted line</blockquote>')
+  })
+
+  it('does not mangle bold text or inline code containing asterisks when checking for italics', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, text: '**Bold** and `a*b` and *italic*' }} />
+    )
+
+    expect(html).toContain('<strong>Bold</strong>')
+    expect(html).toContain('<code>a*b</code>')
+    expect(html).toContain('<em>italic</em>')
+  })
 })

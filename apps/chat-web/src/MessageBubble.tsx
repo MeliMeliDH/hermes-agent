@@ -11,7 +11,11 @@ interface MessageBubbleProps {
   onInputResponse?: (request: InputRequestModel, response: InputResponse) => Promise<void>
 }
 
-const INLINE_MARKDOWN = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|sandbox:\/)[^\s)]+\))/g
+// Order matters: bold (**) must be checked before italics (*) in inlineMarkdown
+// below, since both use the same delimiter character and a naive split would
+// let a single '*' swallow half of a '**' pair. Underscore italics (_text_)
+// avoids that ambiguity entirely, so it's included directly in the split.
+const INLINE_MARKDOWN = /(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|sandbox:\/)[^\s)]+\))/g
 
 function sandboxDownloadHref(target: string): string | undefined {
   if (!target.startsWith('sandbox:/')) {return undefined}
@@ -32,6 +36,10 @@ function inlineMarkdown(text: string): ReactNode[] {
     if (part.startsWith('**') && part.endsWith('**')) {return <strong key={index}>{part.slice(2, -2)}</strong>}
 
     if (part.startsWith('`') && part.endsWith('`')) {return <code key={index}>{part.slice(1, -1)}</code>}
+
+    if (part.startsWith('*') && part.endsWith('*')) {return <em key={index}>{part.slice(1, -1)}</em>}
+
+    if (part.startsWith('_') && part.endsWith('_')) {return <em key={index}>{part.slice(1, -1)}</em>}
     const link = /^\[([^\]]+)\]\(((?:https?:\/\/|sandbox:\/)[^\s)]+)\)$/.exec(part)
 
     if (link) {
@@ -46,14 +54,34 @@ function inlineMarkdown(text: string): ReactNode[] {
   })
 }
 
+const HEADING_RE = /^(#{1,6})\s+(.*)$/
+const ORDERED_ITEM_RE = /^\d+[.)]\s+/
+const BLOCKQUOTE_RE = /^>\s?/
+
 function MarkdownText({ text }: { text: string }) {
   const blocks = text.split(/\n{2,}/)
 
   return blocks.map((block, index) => {
     const lines = block.split('\n')
+    const heading = lines.length === 1 ? HEADING_RE.exec(lines[0]!) : null
+
+    if (heading) {
+      const level = heading[1]!.length
+      const HeadingTag = `h${Math.min(level + 2, 6)}` as 'h3' | 'h4' | 'h5' | 'h6'
+
+      return createElement(HeadingTag, { key: index }, inlineMarkdown(heading[2]!))
+    }
 
     if (lines.length > 1 && lines.every(line => /^[-*]\s+/.test(line))) {
       return <ul key={index}>{lines.map((line, lineIndex) => <li key={lineIndex}>{inlineMarkdown(line.replace(/^[-*]\s+/, ''))}</li>)}</ul>
+    }
+
+    if (lines.length > 1 && lines.every(line => ORDERED_ITEM_RE.test(line))) {
+      return <ol key={index}>{lines.map((line, lineIndex) => <li key={lineIndex}>{inlineMarkdown(line.replace(ORDERED_ITEM_RE, ''))}</li>)}</ol>
+    }
+
+    if (lines.every(line => BLOCKQUOTE_RE.test(line) || line.trim() === '')) {
+      return <blockquote key={index}>{lines.map((line, lineIndex) => <Fragment key={lineIndex}>{lineIndex > 0 && <br />}{inlineMarkdown(line.replace(BLOCKQUOTE_RE, ''))}</Fragment>)}</blockquote>
     }
 
     if (block.startsWith('```') && block.endsWith('```')) {
