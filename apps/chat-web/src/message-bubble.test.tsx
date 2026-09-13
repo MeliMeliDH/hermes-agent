@@ -123,4 +123,23 @@ describe('MessageBubble', () => {
     expect(html).not.toContain('aria-label="Copy message"')
     expect(html).not.toContain('aria-label="Regenerate response"')
   })
+
+  it('renders a seen indicator for a user message marked seen, and a done indicator once complete', () => {
+    const seenHtml = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, role: 'user', turnStatus: 'seen' }} />
+    )
+
+    expect(seenHtml).toContain('aria-label="Seen"')
+
+    const doneHtml = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, role: 'user', turnStatus: 'done' }} />
+    )
+
+    expect(doneHtml).toContain('aria-label="Task complete"')
+  })
+
+  it('does not render a turn-status indicator on assistant messages', () => {
+    const html = renderToStaticMarkup(<MessageBubble message={{ ...assistant, turnStatus: 'done' }} />)
+    expect(html).not.toContain('message-turn-status')
+  })
 })

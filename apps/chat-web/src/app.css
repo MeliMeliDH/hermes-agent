@@ -602,6 +602,11 @@
   font-size: var(--font-size-sm);
 }
 
+.message-turn-status {
+  font-size: var(--font-size-sm);
+  line-height: 1;
+}
+
 .message-bubble {
   background: var(--color-surface);
   border: var(--border-width) solid var(--color-border);

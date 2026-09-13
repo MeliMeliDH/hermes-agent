@@ -490,6 +490,13 @@ export function MessageBubble({ identity, message, onCopy, onInputResponse, onRe
           <strong>{message.senderName}</strong>
           <time dateTime={message.timestamp ? new Date(message.timestamp * 1000).toISOString() : undefined}>{timestamp}</time>
           {message.interim && <span className="message-label">Interim</span>}
+          {message.role === 'user' && message.turnStatus && (
+            <span
+              aria-label={message.turnStatus === 'done' ? 'Task complete' : 'Seen'}
+              className={`message-turn-status message-turn-status--${message.turnStatus}`}
+              title={message.turnStatus === 'done' ? 'Task complete' : 'Seen'}
+            >{message.turnStatus === 'done' ? '✅' : '👀'}</span>
+          )}
         </header>
         <div className="message-bubble">
           {message.inputRequest && <InputPrompt onRespond={onInputResponse} request={message.inputRequest} />}

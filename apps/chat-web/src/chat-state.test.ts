@@ -138,4 +138,29 @@ describe('applyMessageEvent', () => {
       { interim: false, streaming: false, text: 'Done.' }
     ])
   })
+
+  it('marks the preceding user message seen on turn start and done on successful completion', () => {
+    let bubbles = appendLocalMessage([], 'user', 'do the thing', undefined, now)
+    bubbles = applyMessageEvent(bubbles, { type: 'message.start' }, 'default', now)
+
+    expect(bubbles[0]).toMatchObject({ role: 'user', turnStatus: 'seen' })
+
+    bubbles = applyMessageEvent(bubbles, { type: 'message.delta', payload: { text: 'Done.' } }, 'default', now)
+    bubbles = applyMessageEvent(bubbles, { type: 'message.complete', payload: { status: 'complete', text: 'Done.' } }, 'default', now)
+
+    expect(bubbles[0]).toMatchObject({ role: 'user', turnStatus: 'done' })
+  })
+
+  it('keeps the preceding user message at seen (not done) when the turn errors', () => {
+    let bubbles = appendLocalMessage([], 'user', 'do the thing', undefined, now)
+    bubbles = applyMessageEvent(bubbles, { type: 'message.start' }, 'default', now)
+    bubbles = applyMessageEvent(
+      bubbles,
+      { type: 'message.complete', payload: { error: 'boom', status: 'error', text: '' } },
+      'default',
+      now
+    )
+
+    expect(bubbles[0]).toMatchObject({ role: 'user', turnStatus: 'seen' })
+  })
 })

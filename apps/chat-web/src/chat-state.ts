@@ -79,6 +79,12 @@ export interface MessageBubbleModel {
   text: string
   timestamp: number
   tool?: ToolCallModel
+  // Derived, user-message-only status mirroring a Discord-style reaction:
+  // no gateway event distinguishes "seen" from "turn started" or "task
+  // complete" from "turn complete", so this is set client-side from the
+  // existing message.start / message.complete events on the assistant
+  // turn that followed this user message.
+  turnStatus?: 'done' | 'pending' | 'seen'
   usage?: unknown
 }
 
@@ -326,6 +332,32 @@ function findStreamingIndex(messages: MessageBubbleModel[]): number {
   return -1
 }
 
+// Finds the most recent user message at or before `beforeIndex` (or at the
+// end of the list when omitted) so its derived turnStatus can be updated as
+// the assistant's response to it progresses.
+function findLastUserIndex(messages: MessageBubbleModel[], beforeIndex = messages.length): number {
+  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'user') {return index}
+  }
+
+  return -1
+}
+
+function withUserTurnStatus(
+  messages: MessageBubbleModel[],
+  status: MessageBubbleModel['turnStatus'],
+  beforeIndex?: number
+): MessageBubbleModel[] {
+  const userIndex = findLastUserIndex(messages, beforeIndex)
+
+  if (userIndex < 0 || messages[userIndex]!.turnStatus === status) {return messages}
+
+  const next = [...messages]
+  next[userIndex] = { ...next[userIndex]!, turnStatus: status }
+
+  return next
+}
+
 function toolRow(tool: ToolCallModel, timestamp: number, profileName: string): MessageBubbleModel {
   return {
     id: `tool-${tool.toolId}`,
@@ -549,7 +581,7 @@ export function applyMessageEvent(
   if (event.type === 'message.start') {
     ensureStream()
 
-    return next
+    return withUserTurnStatus(next, 'seen')
   }
 
   if (event.type === 'message.delta') {
@@ -592,5 +624,9 @@ export function applyMessageEvent(
     usage: payload.usage
   }
 
-  return next
+  // Errored turns stay marked "seen" rather than a false "done" checkmark --
+  // the assistant read the message but did not successfully finish the task.
+  const isError = Boolean(payload.error) || Boolean(payload.error_surface) || payload.status === 'error'
+
+  return withUserTurnStatus(next, isError ? 'seen' : 'done', streamIndex)
 }
