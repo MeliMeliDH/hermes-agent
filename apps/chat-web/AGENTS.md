@@ -24,8 +24,14 @@ npm run build
 cd ../..
 git add <only the intended files>
 git commit -m "..."
-git push fork chat-web-mvp
+git push fork main
+git push private main
 ```
+
+Note (verified 2026-09-13): the `chat-web-mvp` branch on `fork` is stale/
+defunct -- thousands of unrelated upstream commits diverged from it long
+ago. `main` on both `fork` and `private` is the real, current deploy
+target; don't push there by habit from an older doc revision.
 
 Then verify:
 
