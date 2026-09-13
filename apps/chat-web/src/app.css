@@ -163,6 +163,19 @@
   color: var(--color-text-muted);
 }
 
+.session-most-recent-badge {
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  margin-left: var(--space-2);
+  padding: 1px var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
 .session-actions {
   align-self: stretch;
   color: var(--color-text-muted);

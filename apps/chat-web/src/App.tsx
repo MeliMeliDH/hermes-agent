@@ -615,7 +615,7 @@ export function App() {
           <span>{connectionMessage}</span>
         </div>
         <nav aria-label="Chat sessions" className="session-list">
-          {sessions.map(session => (
+          {sessions.map((session, index) => (
             <button
               className="session-row"
               data-active={session.id === activeStoredId ? 'true' : 'false'}
@@ -624,7 +624,10 @@ export function App() {
               type="button"
             >
               <span className="session-copy">
-                <strong>{sessionTitle(session)}</strong>
+                <strong>
+                  {sessionTitle(session)}
+                  {index === 0 && sessions.length > 1 && <span className="session-most-recent-badge">Most recent</span>}
+                </strong>
                 <small>{session.preview || `${session.message_count ?? 0} messages`}</small>
               </span>
               <span className="session-actions">
