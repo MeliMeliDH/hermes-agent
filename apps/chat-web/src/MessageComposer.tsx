@@ -1,7 +1,7 @@
-import type { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent } from 'react'
+import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
-import { filesFromClipboard, filesFromDrop, type SelectedAttachment } from './attachments'
+import { filesFromClipboard, type SelectedAttachment } from './attachments'
 import type { SlashSuggestion } from './composer'
 
 interface MessageComposerProps {
@@ -105,16 +105,6 @@ export function MessageComposer({
     event.target.value = ''
   }
 
-  const handleDrop = (event: DragEvent<HTMLFormElement>) => {
-    const files = filesFromDrop(event.dataTransfer)
-
-    if (files.length === 0) {return}
-    event.preventDefault()
-
-    if (busy || disabled) {return}
-    onAttachments?.(files)
-  }
-
   const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = filesFromClipboard(event.clipboardData)
 
@@ -127,8 +117,6 @@ export function MessageComposer({
     <form
       aria-label="Message composer"
       className="message-composer"
-      onDragOver={event => { if (event.dataTransfer.types.includes('Files')) {event.preventDefault()} }}
-      onDrop={handleDrop}
       onSubmit={submit}
     >
       {draft.startsWith('/') && suggestions.length > 0 && (

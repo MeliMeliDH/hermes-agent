@@ -2,7 +2,7 @@ import type { GatewayEvent } from '@hermes/shared'
 import { reconnectBackoffDelayMs } from '@hermes/shared'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { createSelectedAttachments, releaseAttachmentPreviews, type SelectedAttachment, uploadAndSubmitAttachments } from './attachments'
+import { createSelectedAttachments, filesFromDrop, releaseAttachmentPreviews, type SelectedAttachment, uploadAndSubmitAttachments } from './attachments'
 import { HERMES_BASE_PATH } from './auth'
 import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, resolveInputRequest, type ToolPayload } from './chat-state'
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
@@ -45,6 +45,14 @@ function sessionTime(timestamp?: number): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(timestamp * 1000)
 }
 
+// Extracted for unit testing: a dragenter/dragleave depth counter rather than
+// a naive enter/leave boolean, because entering a CHILD element fires a
+// leave on the parent first -- a plain flag would flicker false while still
+// dragging over the window. Pure so it's testable without a live DOM.
+export function nextDragDepth(current: number, delta: 1 | -1): number {
+  return Math.max(0, current + delta)
+}
+
 export function App() {
   const [connection, setConnection] = useState<ConnectionState>('connecting')
   const [connectionMessage, setConnectionMessage] = useState('Connecting to the Hermes gateway…')
@@ -60,6 +68,8 @@ export function App() {
   const [turnRunning, setTurnRunning] = useState(false)
   const [slashSuggestions, setSlashSuggestions] = useState<SlashSuggestion[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
+  const [windowDragActive, setWindowDragActive] = useState(false)
+  const windowDragDepthRef = useRef(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SessionSearchResult[]>([])
   const [searchStatus, setSearchStatus] = useState<'error' | 'idle' | 'loading'>('idle')
@@ -457,6 +467,58 @@ export function App() {
     setSessionError(selected.errors.length > 0 ? selected.errors.join(' ') : null)
   }
 
+  // Global drag-and-drop: a file can be dropped anywhere in the window, not
+  // just the composer's own small drop target (matching Discord). Uses a
+  // dragenter/dragleave depth counter rather than a naive enter/leave pair --
+  // entering a CHILD element fires a leave on the parent first, so a plain
+  // boolean flag flickers/false-clears while still dragging over the window.
+  useEffect(() => {
+    const isFileDrag = (event: globalThis.DragEvent) => Boolean(event.dataTransfer?.types.includes('Files'))
+
+    const handleWindowDragEnter = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) {return}
+      event.preventDefault()
+      windowDragDepthRef.current = nextDragDepth(windowDragDepthRef.current, 1)
+      setWindowDragActive(true)
+    }
+
+    const handleWindowDragOver = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) {return}
+      event.preventDefault()
+    }
+
+    const handleWindowDragLeave = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) {return}
+      windowDragDepthRef.current = nextDragDepth(windowDragDepthRef.current, -1)
+
+      if (windowDragDepthRef.current === 0) {setWindowDragActive(false)}
+    }
+
+    const handleWindowDrop = (event: globalThis.DragEvent) => {
+      if (!isFileDrag(event)) {return}
+      event.preventDefault()
+      windowDragDepthRef.current = 0
+      setWindowDragActive(false)
+
+      if (turnRunning || connection !== 'connected' || !activeStoredId) {return}
+      const files = filesFromDrop(event.dataTransfer ?? undefined)
+
+      if (files.length > 0) {handleAttachments(files)}
+    }
+
+    window.addEventListener('dragenter', handleWindowDragEnter)
+    window.addEventListener('dragover', handleWindowDragOver)
+    window.addEventListener('dragleave', handleWindowDragLeave)
+    window.addEventListener('drop', handleWindowDrop)
+
+    return () => {
+      window.removeEventListener('dragenter', handleWindowDragEnter)
+      window.removeEventListener('dragover', handleWindowDragOver)
+      window.removeEventListener('dragleave', handleWindowDragLeave)
+      window.removeEventListener('drop', handleWindowDrop)
+    }
+  }, [activeStoredId, connection, turnRunning])
+
   const handleRemoveAttachment = (id: string) => {
     setSelectedAttachments(current => {
       const removed = current.find(attachment => attachment.id === id)
@@ -697,6 +759,11 @@ export function App() {
 
   return (
     <main className="chat-shell" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
+      {windowDragActive && (
+        <div aria-hidden className="window-drop-overlay">
+          <p>Drop files to attach</p>
+        </div>
+      )}
       <aside className="session-sidebar" id="session-sidebar">
         <div className="sidebar-heading">
           <div>

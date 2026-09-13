@@ -7,6 +7,29 @@
   overflow: hidden;
 }
 
+.window-drop-overlay {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border: var(--border-width-thick, 3px) dashed var(--color-accent);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  pointer-events: none;
+  position: fixed;
+  z-index: 50;
+}
+
+.window-drop-overlay p {
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-accent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-accent);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  padding: var(--space-4) var(--space-6);
+}
+
 .chat-shell[data-sidebar-collapsed='true'] {
   grid-template-columns: minmax(0, 1fr);
 }
