@@ -1,5 +1,5 @@
 import type { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent } from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { filesFromClipboard, filesFromDrop, type SelectedAttachment } from './attachments'
 import type { SlashSuggestion } from './composer'
@@ -47,6 +47,33 @@ export function MessageComposer({
 }: MessageComposerProps) {
   const hasContent = Boolean(draft.trim() || attachments.length)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [uploadMenuOpen, setUploadMenuOpen] = useState(false)
+  const uploadMenuRef = useRef<HTMLDivElement | null>(null)
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Close the upload menu on an outside click or Escape, matching standard
+  // popover-menu behavior (Discord's "+" attachment menu included).
+  useEffect(() => {
+    if (!uploadMenuOpen) {return}
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (uploadMenuRef.current?.contains(event.target as Node)) {return}
+      setUploadMenuOpen(false)
+    }
+
+    const handleKeyDownGlobal = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {setUploadMenuOpen(false)}
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDownGlobal)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDownGlobal)
+    }
+  }, [uploadMenuOpen])
 
   // Auto-grow the textarea as content wraps to more lines, up to the
   // max-height cap in app.css (composer-row textarea), matching Discord's
@@ -144,18 +171,55 @@ export function MessageComposer({
           ))}
         </div>
       )}
-      <div className="composer-attachment-actions">
-        <label className="button composer-attachment-button">
-          <input accept="image/*" aria-label="Choose photos" disabled={disabled || busy} multiple onChange={selectFiles} type="file" />
-          Photo
-        </label>
-        <label className="button composer-attachment-button">
-          <input aria-label="Choose documents" disabled={disabled || busy} multiple onChange={selectFiles} type="file" />
-          File
-        </label>
-        <span className="composer-drop-hint">Drop files here</span>
-      </div>
       <div className="composer-row">
+        <div className="composer-upload" ref={uploadMenuRef}>
+          <button
+            aria-expanded={uploadMenuOpen}
+            aria-haspopup="menu"
+            aria-label="Attach files"
+            className="button composer-upload-toggle"
+            disabled={disabled || busy}
+            onClick={() => setUploadMenuOpen(open => !open)}
+            type="button"
+          >+</button>
+          {uploadMenuOpen && (
+            <div className="composer-upload-menu" role="menu">
+              <button
+                className="composer-upload-option"
+                onClick={() => { photoInputRef.current?.click(); setUploadMenuOpen(false) }}
+                role="menuitem"
+                type="button"
+              >Photo/Video</button>
+              <button
+                className="composer-upload-option"
+                onClick={() => { fileInputRef.current?.click(); setUploadMenuOpen(false) }}
+                role="menuitem"
+                type="button"
+              >File</button>
+            </div>
+          )}
+          <input
+            accept="image/*,video/*"
+            aria-hidden
+            className="composer-upload-input"
+            disabled={disabled || busy}
+            multiple
+            onChange={selectFiles}
+            ref={photoInputRef}
+            tabIndex={-1}
+            type="file"
+          />
+          <input
+            aria-hidden
+            className="composer-upload-input"
+            disabled={disabled || busy}
+            multiple
+            onChange={selectFiles}
+            ref={fileInputRef}
+            tabIndex={-1}
+            type="file"
+          />
+        </div>
         <textarea
           aria-label="Message"
           disabled={disabled || busy}

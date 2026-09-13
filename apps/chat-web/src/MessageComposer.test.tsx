@@ -64,15 +64,33 @@ describe('MessageComposer', () => {
       />
     )
 
-    expect(html).toContain('accept="image/*"')
-    expect(html).toContain('aria-label="Choose photos"')
-    expect(html).toContain('aria-label="Choose documents"')
+    expect(html).toContain('aria-label="Attach files"')
     expect(html).toContain('src="blob:photo-preview"')
     expect(html).toContain('photo.png')
     expect(html).toContain('notes.txt')
     expect(html).toContain('aria-label="Remove photo.png"')
-    expect(html).toContain('Drop files here')
     expect(html).toContain('1.5 KB')
+  })
+
+  it('shows a single unified attach button, not separate always-visible photo/file buttons', () => {
+    const html = renderToStaticMarkup(
+      <MessageComposer
+        busy={false}
+        disabled={false}
+        draft=""
+        onChange={() => undefined}
+        onInterrupt={() => undefined}
+        onSubmit={() => undefined}
+        suggestions={[]}
+      />
+    )
+
+    expect(html).toContain('aria-label="Attach files"')
+    expect(html).toContain('aria-haspopup="menu"')
+    expect(html).not.toContain('aria-label="Choose photos"')
+    expect(html).not.toContain('aria-label="Choose documents"')
+    // Menu is closed by default -- no menu items rendered until opened.
+    expect(html).not.toContain('role="menuitem"')
   })
 
   it('replaces send with an interrupt affordance while a turn is running', () => {

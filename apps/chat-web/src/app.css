@@ -497,9 +497,51 @@
   width: 100%;
 }
 
-.composer-drop-hint {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+.composer-upload {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.composer-upload-toggle {
+  aspect-ratio: 1;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  padding: 0;
+  width: var(--space-7);
+}
+
+.composer-upload-menu {
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  bottom: calc(100% + var(--space-2));
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  left: 0;
+  min-width: 10rem;
+  position: absolute;
+  z-index: 5;
+}
+
+.composer-upload-option {
+  background: transparent;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  width: 100%;
+}
+
+.composer-upload-option:hover {
+  background: var(--color-bg-subtle);
+}
+
+.composer-upload-input {
+  display: none;
 }
 
 .composer-row {
