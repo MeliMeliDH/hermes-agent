@@ -182,7 +182,6 @@ export interface Translations {
     startConversation: string;
     noMessages: string;
     untitledSession: string;
-    mostRecent: string;
     deleteSession: string;
     confirmDeleteTitle: string;
     confirmDeleteMessage: string;

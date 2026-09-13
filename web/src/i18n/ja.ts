@@ -141,7 +141,6 @@ export const ja: Translations = {
     startConversation: "会話を開始するとここに表示されます",
     noMessages: "メッセージがありません",
     untitledSession: "無題のセッション",
-    mostRecent: "最新",
     deleteSession: "セッションを削除",
     confirmDeleteTitle: "セッションを削除しますか？",
     confirmDeleteMessage:

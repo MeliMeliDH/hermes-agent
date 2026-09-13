@@ -468,7 +468,6 @@ function SessionRow({
   searchQuery,
   isExpanded,
   isSelected,
-  isMostRecent,
   onToggle,
   onSelectClick,
   onDelete,
@@ -693,11 +692,6 @@ function SessionRow({
                         : t.sessions.untitledSession}
                   </span>
                 )}
-                {isMostRecent && (
-                  <Badge tone="secondary" className="shrink-0 text-xs">
-                    {t.sessions.mostRecent}
-                  </Badge>
-                )}
                 {session.is_active && (
                   <Badge tone="success" className="shrink-0 text-xs">
                     <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
@@ -834,10 +828,6 @@ export default function SessionsPage() {
   const logScrollRef = useRef<HTMLPreElement | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [overviewSessions, setOverviewSessions] = useState<SessionInfo[]>([]);
-  const [mostRecentSession, setMostRecentSession] = useState<{
-    scope: object;
-    id: string | null;
-  } | null>(null);
   const [view, setView] = useState<SessionsView>("overview");
   const [sessionCategory, setSessionCategory] =
     useState<SessionFilterCategory>("chats");
@@ -850,7 +840,6 @@ export default function SessionsPage() {
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const sourceMenuRef = useRef<HTMLDivElement | null>(null);
   const sessionsRequestRef = useRef(0);
-  const mostRecentRequestRef = useRef(0);
   // Count of empty (no-message, ended, non-archived) sessions across the
   // entire DB, populated by /api/sessions/empty/count. Used to:
   //   • hide the "Delete empty" button when there's nothing to clean up
@@ -1148,31 +1137,6 @@ export default function SessionsPage() {
           if (!cancelled) setStatus(nextStatus);
         })
         .catch(() => {});
-      const mostRecentRequestId = mostRecentRequestRef.current + 1;
-      mostRecentRequestRef.current = mostRecentRequestId;
-      api
-        .getSessions(1, 0, sessionQueryOptions, "recent")
-        .then((r) => {
-          if (
-            cancelled ||
-            mostRecentRequestId !== mostRecentRequestRef.current
-          ) {
-            return;
-          }
-          setMostRecentSession({
-            scope: sessionQueryOptions,
-            id: r.sessions[0]?.id ?? null,
-          });
-        })
-        .catch(() => {
-          if (
-            cancelled ||
-            mostRecentRequestId !== mostRecentRequestRef.current
-          ) {
-            return;
-          }
-          setMostRecentSession({ scope: sessionQueryOptions, id: null });
-        });
       api
         .getSessions(50, 0, sessionQueryOptions)
         .then((r) => {
@@ -1581,10 +1545,6 @@ export default function SessionsPage() {
   }
 
   const filtered = searchResults ?? sessions;
-  const mostRecentSessionId =
-    mostRecentSession?.scope === sessionQueryOptions
-      ? mostRecentSession.id
-      : null;
 
   const platformEntries = status
     ? Object.entries(status.gateway_platforms ?? {})
@@ -2138,7 +2098,6 @@ export default function SessionsPage() {
                   searchQuery={search || undefined}
                   isExpanded={expandedId === s.id}
                   isSelected={selectedIds.has(s.id)}
-                  isMostRecent={s.id === mostRecentSessionId}
                   onToggle={() =>
                     setExpandedId((prev) => (prev === s.id ? null : s.id))
                   }
@@ -2238,7 +2197,6 @@ export default function SessionsPage() {
 interface SessionRowProps {
   isExpanded: boolean;
   isSelected: boolean;
-  isMostRecent: boolean;
   onDelete: () => void;
   onExport: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;

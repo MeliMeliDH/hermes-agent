@@ -141,7 +141,6 @@ export const tr: Translations = {
     startConversation: "Burada görmek için bir konuşma başlatın",
     noMessages: "Mesaj yok",
     untitledSession: "Başlıksız oturum",
-    mostRecent: "En son",
     deleteSession: "Oturumu sil",
     confirmDeleteTitle: "Oturum silinsin mi?",
     confirmDeleteMessage:

@@ -141,7 +141,6 @@ export const uk: Translations = {
     startConversation: "Почніть розмову, щоб побачити її тут",
     noMessages: "Немає повідомлень",
     untitledSession: "Сесія без назви",
-    mostRecent: "Остання",
     deleteSession: "Видалити сесію",
     confirmDeleteTitle: "Видалити сесію?",
     confirmDeleteMessage:
