@@ -97,7 +97,7 @@
 }
 
 .connection-status[data-state='connected'] .status-dot {
-  background: var(--color-text);
+  background: var(--color-success);
 }
 
 .connection-status[data-state='error'],
