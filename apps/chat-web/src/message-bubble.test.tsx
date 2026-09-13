@@ -95,4 +95,32 @@ describe('MessageBubble', () => {
     expect(html).toContain('<code>a*b</code>')
     expect(html).toContain('<em>italic</em>')
   })
+
+  it('shows a copy button for a completed message but no regenerate button without a handler', () => {
+    const html = renderToStaticMarkup(<MessageBubble message={assistant} />)
+    expect(html).toContain('aria-label="Copy message"')
+    expect(html).not.toContain('aria-label="Regenerate response"')
+  })
+
+  it('shows a regenerate button for a completed assistant message when a handler is provided', () => {
+    const html = renderToStaticMarkup(<MessageBubble message={assistant} onRegenerate={() => {}} />)
+    expect(html).toContain('aria-label="Regenerate response"')
+  })
+
+  it('does not show a regenerate button for a user message even with a handler provided', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, role: 'user' }} onRegenerate={() => {}} />
+    )
+
+    expect(html).not.toContain('aria-label="Regenerate response"')
+  })
+
+  it('does not show message actions while a message is still streaming', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, streaming: true }} onRegenerate={() => {}} />
+    )
+
+    expect(html).not.toContain('aria-label="Copy message"')
+    expect(html).not.toContain('aria-label="Regenerate response"')
+  })
 })

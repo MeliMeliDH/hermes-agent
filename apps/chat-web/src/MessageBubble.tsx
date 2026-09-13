@@ -8,7 +8,9 @@ import { type MessageAttachment, safeMediaUrl } from './message-content'
 interface MessageBubbleProps {
   identity?: ProfileIdentity
   message: MessageBubbleModel
+  onCopy?: (text: string) => void
   onInputResponse?: (request: InputRequestModel, response: InputResponse) => Promise<void>
+  onRegenerate?: (message: MessageBubbleModel) => void
 }
 
 // Order matters: bold (**) must be checked before italics (*) in inlineMarkdown
@@ -456,10 +458,22 @@ function formatTimestamp(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(timestamp * 1000)
 }
 
-export function MessageBubble({ identity, message, onInputResponse }: MessageBubbleProps) {
+export function MessageBubble({ identity, message, onCopy, onInputResponse, onRegenerate }: MessageBubbleProps) {
   const avatar = identity?.avatar
   const initials = initialsForName(message.senderName)
   const timestamp = formatTimestamp(message.timestamp)
+  const [copied, setCopied] = useState(false)
+  const canRegenerate = message.role === 'assistant' && !message.streaming && Boolean(onRegenerate)
+  const canCopy = Boolean(message.text) && !message.streaming
+
+  const handleCopy = () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {return}
+    navigator.clipboard.writeText(message.text).then(() => {
+      setCopied(true)
+      onCopy?.(message.text)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }
 
   return (
     <article
@@ -491,6 +505,26 @@ export function MessageBubble({ identity, message, onInputResponse }: MessageBub
           {message.streaming && <span aria-label="Streaming" className="streaming-caret" />}
           <ErrorSurface message={message} />
         </div>
+        {(canCopy || canRegenerate) && (
+          <div className="message-actions">
+            {canCopy && (
+              <button
+                aria-label="Copy message"
+                className="message-action-button"
+                onClick={handleCopy}
+                type="button"
+              >{copied ? 'Copied' : 'Copy'}</button>
+            )}
+            {canRegenerate && (
+              <button
+                aria-label="Regenerate response"
+                className="message-action-button"
+                onClick={() => onRegenerate?.(message)}
+                type="button"
+              >Regenerate</button>
+            )}
+          </div>
+        )}
       </div>
     </article>
   )

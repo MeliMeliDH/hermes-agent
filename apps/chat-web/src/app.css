@@ -658,6 +658,41 @@
   margin-top: var(--space-2);
 }
 
+.message-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.message-row:hover .message-actions,
+.message-row:focus-within .message-actions {
+  opacity: 1;
+}
+
+.message-action-button {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+}
+
+.message-action-button:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* Touch devices have no hover state -- keep actions visible always rather
+   than requiring a tap-to-reveal gesture nobody would discover. */
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+  }
+}
+
 .message-image {
   background: var(--color-bg-subtle);
   border: var(--border-width) solid var(--color-border);

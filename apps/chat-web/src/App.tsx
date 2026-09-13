@@ -412,9 +412,9 @@ export function App() {
     setSelectedAttachments(current => current.map(attachment => attachment.id === update.id ? update : attachment))
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (overrideText?: string) => {
     const gateway = gatewayRef.current
-    const input = draft.trim()
+    const input = (overrideText ?? draft).trim()
     const attachments = selectedAttachments
 
     if (!gateway || !activeStoredId || (!input && attachments.length === 0) || turnRunning) {return}
@@ -531,6 +531,29 @@ export function App() {
       const message = error instanceof Error ? error.message : 'Could not send message'
       setSessionError(message)
       setMessages(current => appendLocalMessage(current, 'system', input, `Error: ${message}`))
+    }
+  }
+
+  // Regenerate = resend the user turn that produced this assistant message.
+  // There is no dedicated gateway RPC for this; resubmitting the same text
+  // as a fresh prompt reuses every existing send code path (attachments,
+  // runtime resolution, error handling) instead of duplicating it. Passing
+  // the text directly to handleSubmit (rather than setDraft + a deferred
+  // call) avoids resending against a stale closure over the old draft value.
+  const handleRegenerate = (message: MessageBubbleModel) => {
+    if (turnRunning) {return}
+    const index = messages.findIndex(candidate => candidate.id === message.id)
+
+    if (index < 0) {return}
+
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      const candidate = messages[cursor]!
+
+      if (candidate.role === 'user') {
+        void handleSubmit(candidate.text)
+
+        return
+      }
     }
   }
 
@@ -707,6 +730,7 @@ export function App() {
                   key={message.id}
                   message={message}
                   onInputResponse={handleInputResponse}
+                  onRegenerate={handleRegenerate}
                 />
               ))
             ) : (
