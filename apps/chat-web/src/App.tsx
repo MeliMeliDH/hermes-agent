@@ -14,6 +14,7 @@ import { respondToInputRequest } from './input-requests'
 import { MessageBubble } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { IMMEDIATE_SCROLL_BEHAVIOR, isNearBottom, resolveScrollFollowState, scheduleAfterLayout, scheduleFollowAfterLayout, watchContentResizeForFollow, watchViewportForFollow } from './scroll-follow'
+import { resultSessionId, resultTitle, searchSessions, type SessionSearchResult } from './session-search'
 import { createSession, deleteSession, ensureSessionRuntime, loadLastSessionId, openSession, persistLastSessionId, selectReconnectSession, selectSessionAfterDelete, type SessionRow } from './sessions'
 import { isCompactChatViewport, loadSidebarCollapsed, persistSidebarCollapsed } from './sidebar-state'
 
@@ -59,6 +60,10 @@ export function App() {
   const [turnRunning, setTurnRunning] = useState(false)
   const [slashSuggestions, setSlashSuggestions] = useState<SlashSuggestion[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SessionSearchResult[]>([])
+  const [searchStatus, setSearchStatus] = useState<'error' | 'idle' | 'loading'>('idle')
+  const searchGenerationRef = useRef(0)
   const gatewayRef = useRef<ChatGatewayClient | null>(null)
   const activeStoredRef = useRef<string | null>(loadLastSessionId())
   const sessionsRef = useRef<SessionRow[]>([])
@@ -368,6 +373,63 @@ export function App() {
     }
   }
 
+  // Debounced cross-session search: fires 250ms after the user stops typing,
+  // discards results from a stale/superseded request via a generation
+  // counter (avoids a slow earlier search overwriting a faster later one).
+  useEffect(() => {
+    const query = searchQuery.trim()
+
+    if (!query) {
+      setSearchResults([])
+      setSearchStatus('idle')
+
+      return
+    }
+
+    const generation = ++searchGenerationRef.current
+    setSearchStatus('loading')
+
+    const timer = setTimeout(() => {
+      void searchSessions(query).then(results => {
+        if (generation !== searchGenerationRef.current) {return}
+        setSearchResults(results)
+        setSearchStatus('idle')
+      }).catch(() => {
+        if (generation !== searchGenerationRef.current) {return}
+        setSearchResults([])
+        setSearchStatus('error')
+      })
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  const handleSearchResultClick = (result: SessionSearchResult) => {
+    const sessionId = resultSessionId(result)
+
+    if (!sessionId) {
+      setSearchQuery('')
+      setSearchResults([])
+
+      return
+    }
+
+    // The matched session may not be in the currently-loaded sidebar list
+    // (200-row cap, or an older/archived session) -- fall back to a minimal
+    // SessionRow built from the search result rather than silently no-oping.
+    const target: SessionRow = sessionsRef.current.find(session => session.id === sessionId) ?? {
+      id: sessionId,
+      message_count: result.message_count,
+      preview: result.preview,
+      started_at: result.started_at,
+      title: result.title
+    }
+
+    void showSession(target)
+    setSearchQuery('')
+    setSearchResults([])
+  }
+
   const handleInterrupt = async () => {
     const gateway = gatewayRef.current
     const runtimeId = activeRuntimeRef.current
@@ -649,6 +711,36 @@ export function App() {
         <div aria-live="polite" className="connection-status" data-state={connection}>
           <span aria-hidden className="status-dot" />
           <span>{connectionMessage}</span>
+        </div>
+        <div className="session-search">
+          <input
+            aria-label="Search sessions"
+            className="session-search-input"
+            onChange={event => setSearchQuery(event.target.value)}
+            placeholder="Search all sessions…"
+            type="search"
+            value={searchQuery}
+          />
+          {searchQuery.trim() && (
+            <div className="session-search-results" role="listbox">
+              {searchStatus === 'loading' && <p className="session-search-status">Searching…</p>}
+              {searchStatus === 'error' && <p className="session-search-status">Search failed. Try again.</p>}
+              {searchStatus === 'idle' && searchResults.length === 0 && (
+                <p className="session-search-status">No matches.</p>
+              )}
+              {searchResults.map((result, index) => (
+                <button
+                  className="session-search-result"
+                  key={`${resultSessionId(result) ?? 'result'}-${index}`}
+                  onClick={() => handleSearchResultClick(result)}
+                  type="button"
+                >
+                  <strong>{resultTitle(result)}</strong>
+                  {result.snippet && <small>{result.snippet}</small>}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <nav aria-label="Chat sessions" className="session-list">
           {sessions.map((session, index) => (
