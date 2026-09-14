@@ -19,6 +19,7 @@ interface MessageComposerProps {
   onSubmit: () => void
   replyTo?: ReplyReference
   suggestions: SlashSuggestion[]
+  turnJustCompleted?: boolean
 }
 
 function fileSize(bytes: number): string {
@@ -49,7 +50,8 @@ export function MessageComposer({
   onRemoveAttachment,
   onSubmit,
   replyTo,
-  suggestions
+  suggestions,
+  turnJustCompleted
 }: MessageComposerProps) {
   const hasContent = Boolean(draft.trim() || attachments.length)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -130,7 +132,7 @@ export function MessageComposer({
   return (
     <form
       aria-label="Message composer"
-      className="message-composer"
+      className={`message-composer${turnJustCompleted ? ' message-composer--ready' : ''}`}
       onSubmit={submit}
     >
       {replyTo && (

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { createSelectedAttachments, filesFromDrop, releaseAttachmentPreviews, type SelectedAttachment, uploadAndSubmitAttachments } from './attachments'
 import { HERMES_BASE_PATH } from './auth'
-import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, buildReplyPrefixedText, groupToolSteps, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, type ReplyReference, resolveInputRequest, type ToolPayload } from './chat-state'
+import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, buildReplyPrefixedText, groupToolSteps, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, type ReplyReference, resolveInputRequest, type ToolPayload, turnJustCompleted } from './chat-state'
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
 import { createGatewayConnectionLifecycle } from './connection-lifecycle'
 import { ChatGatewayClient } from './gateway'
@@ -66,6 +66,8 @@ export function App() {
   const [draft, setDraft] = useState('')
   const [selectedAttachments, setSelectedAttachments] = useState<SelectedAttachment[]>([])
   const [turnRunning, setTurnRunning] = useState(false)
+  const previousTurnRunningRef = useRef(false)
+  const [turnJustCompletedFlash, setTurnJustCompletedFlash] = useState(false)
   const [slashSuggestions, setSlashSuggestions] = useState<SlashSuggestion[]>([])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const [windowDragActive, setWindowDragActive] = useState(false)
@@ -520,6 +522,24 @@ export function App() {
     }
   }, [activeStoredId, connection, turnRunning])
 
+  // #11: a brief affirmative flash on the composer the moment a turn
+  // finishes (running -> not running), rather than the streaming caret
+  // just silently vanishing -- which read ambiguously as "done" vs.
+  // "stalled". Auto-clears after a fixed duration so it reads as a
+  // one-off pulse, not a stuck state.
+  useEffect(() => {
+    if (turnJustCompleted(previousTurnRunningRef.current, turnRunning)) {
+      setTurnJustCompletedFlash(true)
+      const timer = window.setTimeout(() => setTurnJustCompletedFlash(false), 1200)
+
+      previousTurnRunningRef.current = turnRunning
+
+      return () => window.clearTimeout(timer)
+    }
+
+    previousTurnRunningRef.current = turnRunning
+  }, [turnRunning])
+
   const handleRemoveAttachment = (id: string) => {
     setSelectedAttachments(current => {
       const removed = current.find(attachment => attachment.id === id)
@@ -941,6 +961,7 @@ export function App() {
           onSubmit={() => void handleSubmit()}
           replyTo={replyTarget?.reference}
           suggestions={visibleSlashSuggestions}
+          turnJustCompleted={turnJustCompletedFlash}
         />
       </section>
     </main>

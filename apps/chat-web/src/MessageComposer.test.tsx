@@ -146,6 +146,39 @@ describe('MessageComposer', () => {
 
     expect(html).not.toContain('aria-label="Replying to"')
   })
+
+  it('applies the ready-flash class right after a turn completes', () => {
+    const html = renderToStaticMarkup(
+      <MessageComposer
+        busy={false}
+        disabled={false}
+        draft=""
+        onChange={() => undefined}
+        onInterrupt={() => undefined}
+        onSubmit={() => undefined}
+        suggestions={[]}
+        turnJustCompleted
+      />
+    )
+
+    expect(html).toContain('message-composer--ready')
+  })
+
+  it('does not apply the ready-flash class outside the completion moment', () => {
+    const html = renderToStaticMarkup(
+      <MessageComposer
+        busy={false}
+        disabled={false}
+        draft=""
+        onChange={() => undefined}
+        onInterrupt={() => undefined}
+        onSubmit={() => undefined}
+        suggestions={[]}
+      />
+    )
+
+    expect(html).not.toContain('message-composer--ready')
+  })
 })
 
 describe('autoResizeHeight', () => {

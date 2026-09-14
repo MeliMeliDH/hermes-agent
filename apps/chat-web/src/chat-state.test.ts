@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { activityEmojiForTool, appendLocalMessage, applyMessageEvent, buildReplyPrefixedText, groupToolSteps, historyToBubbles, splitReplyPrefix } from './chat-state'
+import { activityEmojiForTool, appendLocalMessage, applyMessageEvent, buildReplyPrefixedText, groupToolSteps, historyToBubbles, splitReplyPrefix, turnJustCompleted } from './chat-state'
 
 const now = () => 1_700_000_000
 
@@ -295,5 +295,23 @@ describe('groupToolSteps', () => {
     expect(items[0]).toMatchObject({ group: { messages: [{ id: 't1' }, { id: 't2' }] } })
     expect(items[1]).toEqual({ kind: 'message', message: userBubble('u1') })
     expect(items[2]).toMatchObject({ group: { messages: [{ id: 't3' }, { id: 't4' }] } })
+  })
+})
+
+describe('turnJustCompleted', () => {
+  it('is true exactly on the running -> not-running edge', () => {
+    expect(turnJustCompleted(true, false)).toBe(true)
+  })
+
+  it('is false while a turn is still running (no edge crossed)', () => {
+    expect(turnJustCompleted(true, true)).toBe(false)
+  })
+
+  it('is false when already idle before and after (no edge crossed)', () => {
+    expect(turnJustCompleted(false, false)).toBe(false)
+  })
+
+  it('is false on the not-running -> running edge (a turn starting, not finishing)', () => {
+    expect(turnJustCompleted(false, true)).toBe(false)
   })
 })

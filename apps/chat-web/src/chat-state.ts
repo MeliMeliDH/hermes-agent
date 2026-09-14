@@ -705,6 +705,18 @@ export function groupToolSteps(messages: MessageBubbleModel[]): DisplayItem[] {
   return items
 }
 
+// #11: a brief affirmative "ready for your next message" signal once a
+// turn finishes, rather than the streaming-caret simply vanishing (which
+// reads ambiguously as "done" vs. "stalled" -- Melissa's own framing when
+// redirecting this item's scope, see #75 item 11). Pure edge-detector so
+// the transition logic is unit-testable without a live timer/DOM: true
+// only on the exact tick a turn goes from running to not-running. Deliberately
+// does NOT fire on running->running (a queued follow-up starting immediately
+// stays running, never crosses this edge) or on false->false (already idle).
+export function turnJustCompleted(previousRunning: boolean, running: boolean): boolean {
+  return previousRunning && !running
+}
+
 export function applyMessageEvent(
   messages: MessageBubbleModel[],
   event: Pick<GatewayEvent<MessagePayload>, 'payload' | 'type'>,
