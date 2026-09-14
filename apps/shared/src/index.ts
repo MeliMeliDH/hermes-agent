@@ -59,6 +59,10 @@ export {
   JsonRpcGatewayError,
   type WebSocketLike
 } from './json-rpc-gateway'
+export {
+  reconnectBackoffDelayMs,
+  type ReconnectBackoffOptions
+} from './reconnect-backoff'
 export { skillInvocationText } from './skill-scaffold'
 export {
   type HermesSkin,
@@ -113,7 +117,3 @@ export {
   type ResolveGatewayWsUrlDeps,
   type WebSocketAuthParam
 } from './websocket-url'
-export {
-  reconnectBackoffDelayMs,
-  type ReconnectBackoffOptions
-} from './reconnect-backoff'
