@@ -4,14 +4,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { createSelectedAttachments, filesFromDrop, releaseAttachmentPreviews, type SelectedAttachment, uploadAndSubmitAttachments } from './attachments'
 import { HERMES_BASE_PATH } from './auth'
-import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, buildReplyPrefixedText, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, type ReplyReference, resolveInputRequest, type ToolPayload } from './chat-state'
+import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, buildReplyPrefixedText, groupToolSteps, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, type ReplyReference, resolveInputRequest, type ToolPayload } from './chat-state'
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
 import { createGatewayConnectionLifecycle } from './connection-lifecycle'
 import { ChatGatewayClient } from './gateway'
 import { HubLink } from './HubLink'
 import { displayNameForProfile, loadProfiles, type ProfileIdentity } from './identity'
 import { respondToInputRequest } from './input-requests'
-import { MessageBubble } from './MessageBubble'
+import { MessageBubble, ToolStepGroup } from './MessageBubble'
 import { MessageComposer } from './MessageComposer'
 import { IMMEDIATE_SCROLL_BEHAVIOR, isNearBottom, resolveScrollFollowState, scheduleAfterLayout, scheduleFollowAfterLayout, watchContentResizeForFollow, watchViewportForFollow } from './scroll-follow'
 import { resultSessionId, resultTitle, searchSessions, type SessionSearchResult } from './session-search'
@@ -897,17 +897,19 @@ export function App() {
             {loadingHistory ? (
               <div className="empty-state">Loading session history…</div>
             ) : messages.length ? (
-              messages.map(message => (
+              groupToolSteps(messages).map(item => item.kind === 'tool-group' ? (
+                <ToolStepGroup group={item.group} key={item.group.id} />
+              ) : (
                 <MessageBubble
                   identity={
-                    message.role === 'user'
+                    item.message.role === 'user'
                       ? USER_IDENTITY
-                      : message.profileName
-                        ? profiles[message.profileName] ?? profiles[message.profileName.toLowerCase()]
+                      : item.message.profileName
+                        ? profiles[item.message.profileName] ?? profiles[item.message.profileName.toLowerCase()]
                         : undefined
                   }
-                  key={message.id}
-                  message={message}
+                  key={item.message.id}
+                  message={item.message}
                   onInputResponse={handleInputResponse}
                   onRegenerate={handleRegenerate}
                   onReply={handleReply}

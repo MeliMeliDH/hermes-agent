@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { MessageBubble, truncateReplyPreview } from './MessageBubble'
+import { MessageBubble, ToolStepGroup, truncateReplyPreview } from './MessageBubble'
 
 const assistant = {
   id: 'a1',
@@ -177,6 +177,45 @@ describe('MessageBubble', () => {
     )
 
     expect(html).not.toContain('tool-call-emoji')
+  })
+})
+
+describe('ToolStepGroup', () => {
+  const toolMessage = (id: string, name: string, status = 'complete') => ({
+    ...assistant, id, role: 'system' as const, streaming: status === 'running', text: '', tool: { name, status, toolId: id }
+  })
+
+  it('shows a "N tool calls" summary and renders each step inside', () => {
+    const html = renderToStaticMarkup(
+      <ToolStepGroup group={{
+        id: 'g1',
+        messages: [toolMessage('t1', 'search_files'), toolMessage('t2', 'read_file'), toolMessage('t3', 'patch')],
+        streaming: false
+      }}
+      />
+    )
+
+    expect(html).toContain('3 tool calls')
+    expect(html).toContain('search_files')
+    expect(html).toContain('read_file')
+    expect(html).toContain('patch')
+  })
+
+  it('is collapsed by default once every step has finished', () => {
+    const html = renderToStaticMarkup(
+      <ToolStepGroup group={{ id: 'g1', messages: [toolMessage('t1', 'a'), toolMessage('t2', 'b')], streaming: false }} />
+    )
+
+    expect(html).not.toContain('open=""')
+  })
+
+  it('is open by default while any step is still running', () => {
+    const html = renderToStaticMarkup(
+      <ToolStepGroup group={{ id: 'g1', messages: [toolMessage('t1', 'a'), toolMessage('t2', 'b', 'running')], streaming: true }} />
+    )
+
+    expect(html).toContain('open=""')
+    expect(html).toContain('aria-label="Running"')
   })
 })
 

@@ -1,7 +1,7 @@
 import { createElement, Fragment, type ReactNode, useEffect, useState } from 'react'
 
 import { HERMES_BASE_PATH } from './auth'
-import { activityEmojiForTool, type ClarifyQuestionModel, type InputRequestModel, type InputResponse, type MessageBubbleModel } from './chat-state'
+import { activityEmojiForTool, type ClarifyQuestionModel, type InputRequestModel, type InputResponse, type MessageBubbleModel, type ToolStepGroupModel } from './chat-state'
 import { initialsForName, type ProfileIdentity } from './identity'
 import { type MessageAttachment, safeMediaUrl } from './message-content'
 
@@ -472,6 +472,30 @@ export function truncateReplyPreview(text: string): string {
   const collapsed = text.replace(/\s+/g, ' ').trim()
 
   return collapsed.length > REPLY_PREVIEW_MAX_CHARS ? `${collapsed.slice(0, REPLY_PREVIEW_MAX_CHARS)}…` : collapsed
+}
+
+// #10: once a turn finishes, a run of 2+ consecutive tool-call steps
+// (search_files, read_file, patch, ...) collapses into ONE expandable
+// section, matching the existing 'Thinking' details/summary pattern
+// (`message-reasoning` above) rather than staying visible as separate
+// expanded blocks indefinitely. Open by default while any step in the
+// group is still running (so the user sees live progress), closed by
+// default once the whole group is done.
+export function ToolStepGroup({ group }: { group: ToolStepGroupModel }) {
+  const label = `${group.messages.length} tool call${group.messages.length === 1 ? '' : 's'}`
+
+  return (
+    <details className="tool-step-group" open={group.streaming}>
+      <summary>
+        <span aria-hidden className="tool-call-emoji">🧰</span>
+        <strong>{label}</strong>
+        {group.streaming && <span aria-label="Running" className="streaming-caret" />}
+      </summary>
+      <div className="tool-step-group-items">
+        {group.messages.map(message => message.tool && <ToolCall key={message.id} tool={message.tool} />)}
+      </div>
+    </details>
+  )
 }
 
 export function MessageBubble({ identity, message, onCopy, onInputResponse, onRegenerate, onReply }: MessageBubbleProps) {

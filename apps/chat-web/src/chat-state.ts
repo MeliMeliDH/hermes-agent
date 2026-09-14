@@ -645,6 +645,66 @@ export function applyToolEvent(
   return next
 }
 
+// Collapses a run of consecutive tool-call bubbles into one group for
+// display (#10): once Hermes finishes a reply, several raw
+// search_files/read_file/patch steps stayed visible as separate expanded
+// blocks indefinitely -- noisy after the turn is done. Groups by
+// ADJACENCY in the flat `messages` array (tool bubbles from one turn are
+// already contiguous there), not by session/turn id, so this stays a pure
+// projection with no new bookkeeping on MessageBubbleModel itself. A
+// single isolated tool call is left as its own item (not wrapped) --
+// grouping only pays off for a real run of 2+ steps; wrapping a lone call
+// would add an extra collapse layer for no benefit.
+export interface ToolStepGroupModel {
+  id: string
+  messages: MessageBubbleModel[]
+  streaming: boolean
+}
+
+export type DisplayItem =
+  | { group: ToolStepGroupModel; kind: 'tool-group' }
+  | { kind: 'message'; message: MessageBubbleModel }
+
+export function groupToolSteps(messages: MessageBubbleModel[]): DisplayItem[] {
+  const items: DisplayItem[] = []
+  let index = 0
+
+  while (index < messages.length) {
+    const message = messages[index]!
+
+    if (message.role !== 'system' || !message.tool) {
+      items.push({ kind: 'message', message })
+      index += 1
+
+      continue
+    }
+
+    const run: MessageBubbleModel[] = []
+    let cursor = index
+
+    while (cursor < messages.length) {
+      const candidate = messages[cursor]!
+
+      if (candidate.role !== 'system' || !candidate.tool) {break}
+      run.push(candidate)
+      cursor += 1
+    }
+
+    if (run.length > 1) {
+      items.push({
+        group: { id: `toolgroup-${run[0]!.id}`, messages: run, streaming: run.some(item => item.tool!.status === 'running') },
+        kind: 'tool-group'
+      })
+    } else {
+      items.push({ kind: 'message', message: run[0]! })
+    }
+
+    index = cursor
+  }
+
+  return items
+}
+
 export function applyMessageEvent(
   messages: MessageBubbleModel[],
   event: Pick<GatewayEvent<MessagePayload>, 'payload' | 'type'>,

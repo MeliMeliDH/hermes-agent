@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { activityEmojiForTool, appendLocalMessage, applyMessageEvent, buildReplyPrefixedText, historyToBubbles, splitReplyPrefix } from './chat-state'
+import { activityEmojiForTool, appendLocalMessage, applyMessageEvent, buildReplyPrefixedText, groupToolSteps, historyToBubbles, splitReplyPrefix } from './chat-state'
 
 const now = () => 1_700_000_000
 
@@ -229,5 +229,71 @@ describe('activityEmojiForTool', () => {
 
   it('returns undefined for an unmapped tool name rather than a wrong guess', () => {
     expect(activityEmojiForTool('some_future_tool_not_in_the_table')).toBeUndefined()
+  })
+})
+
+describe('groupToolSteps', () => {
+  const toolBubble = (id: string, name: string, status = 'complete') => ({
+    id,
+    interim: false,
+    role: 'system' as const,
+    senderName: 'Hermes',
+    streaming: status === 'running',
+    text: '',
+    timestamp: 0,
+    tool: { name, status, toolId: id }
+  })
+
+  const userBubble = (id: string) => ({
+    id, interim: false, role: 'user' as const, senderName: 'You', streaming: false, text: 'hi', timestamp: 0
+  })
+
+  it('leaves a single isolated tool call as its own item, not wrapped in a group', () => {
+    const items = groupToolSteps([userBubble('u1'), toolBubble('t1', 'read_file')])
+
+    expect(items).toEqual([
+      { kind: 'message', message: userBubble('u1') },
+      { kind: 'message', message: toolBubble('t1', 'read_file') }
+    ])
+  })
+
+  it('collapses a run of 2+ consecutive tool calls into one group', () => {
+    const items = groupToolSteps([
+      userBubble('u1'),
+      toolBubble('t1', 'search_files'),
+      toolBubble('t2', 'read_file'),
+      toolBubble('t3', 'patch')
+    ])
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toEqual({ kind: 'message', message: userBubble('u1') })
+    expect(items[1]).toMatchObject({ group: { messages: [{ id: 't1' }, { id: 't2' }, { id: 't3' }] }, kind: 'tool-group' })
+  })
+
+  it('marks a group as streaming when any of its steps is still running', () => {
+    const items = groupToolSteps([toolBubble('t1', 'search_files'), toolBubble('t2', 'read_file', 'running')])
+
+    expect(items[0]).toMatchObject({ group: { streaming: true } })
+  })
+
+  it('marks a group as not streaming once every step is complete', () => {
+    const items = groupToolSteps([toolBubble('t1', 'search_files'), toolBubble('t2', 'read_file')])
+
+    expect(items[0]).toMatchObject({ group: { streaming: false } })
+  })
+
+  it('does not merge two separate runs across an intervening non-tool message', () => {
+    const items = groupToolSteps([
+      toolBubble('t1', 'search_files'),
+      toolBubble('t2', 'read_file'),
+      userBubble('u1'),
+      toolBubble('t3', 'patch'),
+      toolBubble('t4', 'write_file')
+    ])
+
+    expect(items).toHaveLength(3)
+    expect(items[0]).toMatchObject({ group: { messages: [{ id: 't1' }, { id: 't2' }] } })
+    expect(items[1]).toEqual({ kind: 'message', message: userBubble('u1') })
+    expect(items[2]).toMatchObject({ group: { messages: [{ id: 't3' }, { id: 't4' }] } })
   })
 })

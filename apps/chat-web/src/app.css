@@ -975,6 +975,25 @@
   font-size: var(--font-size-base);
 }
 
+.tool-step-group {
+  min-width: min(calc(var(--space-8) * 8), 70vw);
+}
+
+.tool-step-group summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.tool-step-group-items {
+  border-top: var(--border-width) solid var(--color-border);
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+}
+
 .tool-call-details {
   border-top: var(--border-width) solid var(--color-border);
   display: grid;
