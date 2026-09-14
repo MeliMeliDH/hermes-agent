@@ -92,6 +92,14 @@ export function MessageComposer({
     autoResizeHeight(node)
   }, [draft])
 
+  // Focus the composer as soon as a reply target is set, so pressing
+  // "Reply" on a message lets the user start typing immediately -- matching
+  // Discord's own reply UX, which auto-focuses the message box the same way.
+  useEffect(() => {
+    if (!replyTo) {return}
+    textareaRef.current?.focus()
+  }, [replyTo])
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
 
