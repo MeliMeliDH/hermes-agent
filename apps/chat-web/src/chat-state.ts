@@ -72,6 +72,12 @@ export interface MessageBubbleModel {
   profileName?: string
   rendered?: string
   reasoning?: string
+  // The message this one was sent as a reply to (Discord-style quote-reply,
+  // #8). Kept as a lightweight snapshot (role/senderName/text), not a live
+  // reference to the original bubble, so it survives history reloads and
+  // regenerate/resend without needing the original message to still exist
+  // in the current `messages` array.
+  replyTo?: ReplyReference
   role: 'assistant' | 'system' | 'user'
   senderName: string
   status?: string
@@ -86,6 +92,49 @@ export interface MessageBubbleModel {
   // turn that followed this user message.
   turnStatus?: 'done' | 'pending' | 'seen'
   usage?: unknown
+}
+
+export interface ReplyReference {
+  role: MessageBubbleModel['role']
+  senderName: string
+  text: string
+}
+
+// Mirrors the exact gateway-side convention (gateway/run_inbound.py
+// `_prepend_inbound_reply_context`): a `[Replying to: "..."]` pointer
+// prepended to the actual prompt text sent to the model, so Hermes has real
+// disambiguating context -- not just a client-side visual quote. Sends the
+// FULL quoted text, never a truncated preview (a preview would silently
+// drop later list items/code from the model's view of what's being quoted).
+export function buildReplyPrefixedText(reply: ReplyReference, input: string): string {
+  const quoted = reply.text.trim()
+
+  if (!quoted) {return input}
+  const who = reply.role === 'user' ? ' your previous message' : ''
+
+  return `[Replying to${who}: "${quoted}"]\n\n${input}`
+}
+
+// Inverse of buildReplyPrefixedText, applied when replaying stored history
+// so the quoted-reply UI (MessageBubble's reply preview) survives a page
+// reload instead of showing the raw `[Replying to: "..."]` bracket as part
+// of the message body. The exact quoted sender's name/role isn't
+// recoverable from the bracket text alone (only "your previous message"
+// vs. not distinguishes user-quoting-self from quoting the assistant), so
+// this only reconstructs enough to render a reply banner, not to re-link to
+// the original bubble.
+const REPLY_PREFIX_RE = /^\[Replying to( your previous message)?: "([\s\S]*)"\]\n\n([\s\S]*)$/
+
+export function splitReplyPrefix(text: string, assistantName: string): { reply?: ReplyReference; text: string } {
+  const match = REPLY_PREFIX_RE.exec(text)
+
+  if (!match) {return { text }}
+  const isOwnMessage = Boolean(match[1])
+
+  return {
+    reply: { role: isOwnMessage ? 'user' : 'assistant', senderName: isOwnMessage ? 'You' : assistantName, text: match[2]! },
+    text: match[3]!
+  }
 }
 
 export interface ToolPayload {
@@ -262,14 +311,16 @@ export function historyToBubbles(history: GatewayHistoryMessage[], profileName: 
             senderName
           })
         } else {
+          const { reply, text: bodyText } = splitReplyPrefix(text, displayNameForProfile(profileName))
           bubbles.push({
             ...(content.attachments.length ? { attachments: content.attachments } : {}),
+            ...(reply ? { replyTo: reply } : {}),
             id,
             interim: false,
             role: 'user',
             senderName: 'You',
             streaming: false,
-            text,
+            text: bodyText,
             timestamp
           })
         }
@@ -305,7 +356,8 @@ export function appendLocalMessage(
   displayText: string,
   body = displayText,
   now: () => number = () => Date.now() / 1000,
-  attachments: MessageAttachment[] = []
+  attachments: MessageAttachment[] = [],
+  replyTo?: ReplyReference
 ): MessageBubbleModel[] {
   const text = role === 'system' && displayText !== body ? `${displayText}\n${body}` : body
 
@@ -313,6 +365,7 @@ export function appendLocalMessage(
     ...messages,
     {
       ...(attachments.length ? { attachments } : {}),
+      ...(replyTo ? { replyTo } : {}),
       id: `local-${role}-${now()}-${messages.length}`,
       interim: false,
       role,

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { createSelectedAttachments, filesFromDrop, releaseAttachmentPreviews, type SelectedAttachment, uploadAndSubmitAttachments } from './attachments'
 import { HERMES_BASE_PATH } from './auth'
-import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, resolveInputRequest, type ToolPayload } from './chat-state'
+import { appendLocalMessage, applyInputRequestEvent, applyInputRequestExpireEvent, applyMessageEvent, applyReasoningEvent, applyToolEvent, buildReplyPrefixedText, historyToBubbles, type InputRequestExpirePayload, type InputRequestModel, type InputRequestPayload, type InputResponse, type MessageBubbleModel, type MessagePayload, type ReasoningPayload, type ReplyReference, resolveInputRequest, type ToolPayload } from './chat-state'
 import { filterSlashCommands, runComposerInput, type SlashCatalog, type SlashSuggestion } from './composer'
 import { createGatewayConnectionLifecycle } from './connection-lifecycle'
 import { ChatGatewayClient } from './gateway'
@@ -70,6 +70,7 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed)
   const [windowDragActive, setWindowDragActive] = useState(false)
   const windowDragDepthRef = useRef(0)
+  const [replyTarget, setReplyTarget] = useState<{ id: string; reference: ReplyReference } | undefined>()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SessionSearchResult[]>([])
   const [searchStatus, setSearchStatus] = useState<'error' | 'idle' | 'loading'>('idle')
@@ -536,21 +537,29 @@ export function App() {
     setSelectedAttachments(current => current.map(attachment => attachment.id === update.id ? update : attachment))
   }
 
-  const handleSubmit = async (overrideText?: string) => {
+  const handleSubmit = async (overrideText?: string, overrideReply?: ReplyReference) => {
     const gateway = gatewayRef.current
-    const input = (overrideText ?? draft).trim()
+    const displayInput = (overrideText ?? draft).trim()
+    const activeReply = overrideText === undefined ? replyTarget?.reference : overrideReply
+    // The prompt actually sent to the gateway carries the disambiguation
+    // pointer (matches the gateway's own inbound convention for every other
+    // platform, gateway/run_inbound.py `_prepend_inbound_reply_context`) so
+    // Hermes genuinely has the quoted context, not just a visual quote --
+    // but the message BUBBLE shown to the user stays plain text; the quote
+    // renders separately via `replyTo` (MessageBubble reply-preview UI).
+    const input = activeReply ? buildReplyPrefixedText(activeReply, displayInput) : displayInput
     const attachments = selectedAttachments
 
-    if (!gateway || !activeStoredId || (!input && attachments.length === 0) || turnRunning) {return}
+    if (!gateway || !activeStoredId || (!displayInput && attachments.length === 0) || turnRunning) {return}
 
-    if (attachments.length === 0 && ['/new', '/reset'].includes(input.toLowerCase())) {
+    if (attachments.length === 0 && ['/new', '/reset'].includes(displayInput.toLowerCase())) {
       setDraft('')
       await handleCreate()
 
       return
     }
 
-    if (attachments.length === 0 && ['/stop', '/interrupt'].includes(input.toLowerCase())) {
+    if (attachments.length === 0 && ['/stop', '/interrupt'].includes(displayInput.toLowerCase())) {
       setDraft('')
       await handleInterrupt()
 
@@ -602,13 +611,14 @@ export function App() {
           ...(attachment.previewUrl ? { url: attachment.previewUrl } : {})
         }))
 
-        setMessages(current => appendLocalMessage(current, 'user', input, input, undefined, previews))
+        setMessages(current => appendLocalMessage(current, 'user', displayInput, displayInput, undefined, previews, activeReply))
         setDraft('')
+        setReplyTarget(undefined)
         setSelectedAttachments([])
         setTurnRunning(result.status === 'streaming')
 
         if (result.status !== 'streaming') {
-          setMessages(current => appendLocalMessage(current, 'system', input, `Gateway status: ${result.status}`))
+          setMessages(current => appendLocalMessage(current, 'system', displayInput, `Gateway status: ${result.status}`))
         }
 
         void refreshSessions(gateway)
@@ -616,17 +626,18 @@ export function App() {
         setTurnRunning(false)
         const message = error instanceof Error ? error.message : 'Could not upload attachment'
         setSessionError(message)
-        setMessages(current => appendLocalMessage(current, 'system', input || 'Attachment', `Error: ${message}`))
+        setMessages(current => appendLocalMessage(current, 'system', displayInput || 'Attachment', `Error: ${message}`))
       }
 
       return
     }
 
-    const plainPrompt = !input.startsWith('/')
+    const plainPrompt = !displayInput.startsWith('/')
     setDraft('')
+    setReplyTarget(undefined)
 
     if (plainPrompt) {
-      setMessages(current => appendLocalMessage(current, 'user', input))
+      setMessages(current => appendLocalMessage(current, 'user', displayInput, displayInput, undefined, [], activeReply))
       setTurnRunning(true)
     }
 
@@ -638,7 +649,7 @@ export function App() {
         setTurnRunning(result.status === 'streaming')
 
         if (result.status !== 'streaming') {
-          setMessages(current => appendLocalMessage(current, 'system', input, `Gateway status: ${result.status}`))
+          setMessages(current => appendLocalMessage(current, 'system', displayInput, `Gateway status: ${result.status}`))
         }
 
         // The gateway bumps this session's last-active ordering server-side on
@@ -646,7 +657,7 @@ export function App() {
         // showing a stale snapshot from page-load/last-refresh time.
         void refreshSessions(gateway)
       } else if (result.kind === 'output') {
-        setMessages(current => appendLocalMessage(current, 'system', input, result.text))
+        setMessages(current => appendLocalMessage(current, 'system', displayInput, result.text))
       } else {
         setDraft(result.text)
       }
@@ -654,9 +665,15 @@ export function App() {
       setTurnRunning(false)
       const message = error instanceof Error ? error.message : 'Could not send message'
       setSessionError(message)
-      setMessages(current => appendLocalMessage(current, 'system', input, `Error: ${message}`))
+      setMessages(current => appendLocalMessage(current, 'system', displayInput, `Error: ${message}`))
     }
   }
+
+  const handleReply = (message: MessageBubbleModel) => {
+    setReplyTarget({ id: message.id, reference: { role: message.role, senderName: message.senderName, text: message.text } })
+  }
+
+  const clearReply = () => setReplyTarget(undefined)
 
   // Regenerate = resend the user turn that produced this assistant message.
   // There is no dedicated gateway RPC for this; resubmitting the same text
@@ -664,6 +681,9 @@ export function App() {
   // runtime resolution, error handling) instead of duplicating it. Passing
   // the text directly to handleSubmit (rather than setDraft + a deferred
   // call) avoids resending against a stale closure over the old draft value.
+  // Its own reply target (if any) rides along too, so a regenerated turn
+  // that was originally a reply keeps disambiguating the same earlier
+  // message rather than silently losing that context.
   const handleRegenerate = (message: MessageBubbleModel) => {
     if (turnRunning) {return}
     const index = messages.findIndex(candidate => candidate.id === message.id)
@@ -674,7 +694,7 @@ export function App() {
       const candidate = messages[cursor]!
 
       if (candidate.role === 'user') {
-        void handleSubmit(candidate.text)
+        void handleSubmit(candidate.text, candidate.replyTo)
 
         return
       }
@@ -890,6 +910,7 @@ export function App() {
                   message={message}
                   onInputResponse={handleInputResponse}
                   onRegenerate={handleRegenerate}
+                  onReply={handleReply}
                 />
               ))
             ) : (
@@ -911,10 +932,12 @@ export function App() {
           disabled={connection !== 'connected' || !activeStoredId || loadingHistory}
           draft={draft}
           onAttachments={handleAttachments}
+          onCancelReply={clearReply}
           onChange={setDraft}
           onInterrupt={() => void handleInterrupt()}
           onRemoveAttachment={handleRemoveAttachment}
           onSubmit={() => void handleSubmit()}
+          replyTo={replyTarget?.reference}
           suggestions={visibleSlashSuggestions}
         />
       </section>

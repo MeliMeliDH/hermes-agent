@@ -109,6 +109,43 @@ describe('MessageComposer', () => {
     expect(html).toContain('Stop response')
     expect(html).toContain('disabled=""')
   })
+
+  it('shows a quoted reply preview banner with a cancel control when replying', () => {
+    const html = renderToStaticMarkup(
+      <MessageComposer
+        busy={false}
+        disabled={false}
+        draft=""
+        onCancelReply={() => undefined}
+        onChange={() => undefined}
+        onInterrupt={() => undefined}
+        onSubmit={() => undefined}
+        replyTo={{ role: 'assistant', senderName: 'Victoria Hermes', text: 'the earlier answer' }}
+        suggestions={[]}
+      />
+    )
+
+    expect(html).toContain('aria-label="Replying to"')
+    expect(html).toContain('Victoria Hermes')
+    expect(html).toContain('the earlier answer')
+    expect(html).toContain('aria-label="Cancel reply"')
+  })
+
+  it('renders no reply preview when not replying to anything', () => {
+    const html = renderToStaticMarkup(
+      <MessageComposer
+        busy={false}
+        disabled={false}
+        draft=""
+        onChange={() => undefined}
+        onInterrupt={() => undefined}
+        onSubmit={() => undefined}
+        suggestions={[]}
+      />
+    )
+
+    expect(html).not.toContain('aria-label="Replying to"')
+  })
 })
 
 describe('autoResizeHeight', () => {

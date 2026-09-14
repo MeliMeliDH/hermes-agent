@@ -2,7 +2,9 @@ import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent } from 'reac
 import { useEffect, useRef, useState } from 'react'
 
 import { filesFromClipboard, type SelectedAttachment } from './attachments'
+import type { ReplyReference } from './chat-state'
 import type { SlashSuggestion } from './composer'
+import { truncateReplyPreview } from './MessageBubble'
 
 interface MessageComposerProps {
   attachments?: SelectedAttachment[]
@@ -10,10 +12,12 @@ interface MessageComposerProps {
   disabled: boolean
   draft: string
   onAttachments?: (files: File[]) => void
+  onCancelReply?: () => void
   onChange: (value: string) => void
   onInterrupt: () => void
   onRemoveAttachment?: (id: string) => void
   onSubmit: () => void
+  replyTo?: ReplyReference
   suggestions: SlashSuggestion[]
 }
 
@@ -39,10 +43,12 @@ export function MessageComposer({
   disabled,
   draft,
   onAttachments,
+  onCancelReply,
   onChange,
   onInterrupt,
   onRemoveAttachment,
   onSubmit,
+  replyTo,
   suggestions
 }: MessageComposerProps) {
   const hasContent = Boolean(draft.trim() || attachments.length)
@@ -119,6 +125,20 @@ export function MessageComposer({
       className="message-composer"
       onSubmit={submit}
     >
+      {replyTo && (
+        <div aria-label="Replying to" className="composer-reply-preview">
+          <span className="composer-reply-preview-label">
+            Replying to <strong>{replyTo.senderName}</strong>
+          </span>
+          <span className="composer-reply-preview-text">{truncateReplyPreview(replyTo.text)}</span>
+          <button
+            aria-label="Cancel reply"
+            className="composer-reply-cancel"
+            onClick={onCancelReply}
+            type="button"
+          >×</button>
+        </div>
+      )}
       {draft.startsWith('/') && suggestions.length > 0 && (
         <div aria-label="Slash command suggestions" className="slash-suggestions" role="listbox">
           {suggestions.map(suggestion => (

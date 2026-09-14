@@ -11,6 +11,7 @@ interface MessageBubbleProps {
   onCopy?: (text: string) => void
   onInputResponse?: (request: InputRequestModel, response: InputResponse) => Promise<void>
   onRegenerate?: (message: MessageBubbleModel) => void
+  onReply?: (message: MessageBubbleModel) => void
 }
 
 // Order matters: bold (**) must be checked before italics (*) in inlineMarkdown
@@ -458,13 +459,27 @@ function formatTimestamp(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(timestamp * 1000)
 }
 
-export function MessageBubble({ identity, message, onCopy, onInputResponse, onRegenerate }: MessageBubbleProps) {
+// Visual-only truncation for the quoted-reply preview shown in a bubble.
+// Never used for the actual prompt text sent to the gateway (that goes
+// through buildReplyPrefixedText in chat-state.ts with the FULL text) --
+// this is purely so a long quoted message doesn't blow up the reply's own
+// bubble height.
+const REPLY_PREVIEW_MAX_CHARS = 120
+
+export function truncateReplyPreview(text: string): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+
+  return collapsed.length > REPLY_PREVIEW_MAX_CHARS ? `${collapsed.slice(0, REPLY_PREVIEW_MAX_CHARS)}…` : collapsed
+}
+
+export function MessageBubble({ identity, message, onCopy, onInputResponse, onRegenerate, onReply }: MessageBubbleProps) {
   const avatar = identity?.avatar
   const initials = initialsForName(message.senderName)
   const timestamp = formatTimestamp(message.timestamp)
   const [copied, setCopied] = useState(false)
   const canRegenerate = message.role === 'assistant' && !message.streaming && Boolean(onRegenerate)
   const canCopy = Boolean(message.text) && !message.streaming
+  const canReply = !message.streaming && !message.tool && !message.inputRequest && Boolean(onReply)
 
   const handleCopy = () => {
     if (typeof navigator === 'undefined' || !navigator.clipboard) {return}
@@ -499,6 +514,12 @@ export function MessageBubble({ identity, message, onCopy, onInputResponse, onRe
           )}
         </header>
         <div className="message-bubble">
+          {message.replyTo && (
+            <div className="message-reply-quote">
+              <strong>{message.replyTo.senderName}</strong>
+              <span>{truncateReplyPreview(message.replyTo.text)}</span>
+            </div>
+          )}
           {message.inputRequest && <InputPrompt onRespond={onInputResponse} request={message.inputRequest} />}
           {message.reasoning && (
             <details className="message-reasoning">
@@ -512,7 +533,7 @@ export function MessageBubble({ identity, message, onCopy, onInputResponse, onRe
           {message.streaming && <span aria-label="Streaming" className="streaming-caret" />}
           <ErrorSurface message={message} />
         </div>
-        {(canCopy || canRegenerate) && (
+        {(canCopy || canRegenerate || canReply) && (
           <div className="message-actions">
             {canCopy && (
               <button
@@ -529,6 +550,14 @@ export function MessageBubble({ identity, message, onCopy, onInputResponse, onRe
                 onClick={() => onRegenerate?.(message)}
                 type="button"
               >Regenerate</button>
+            )}
+            {canReply && (
+              <button
+                aria-label="Reply to message"
+                className="message-action-button"
+                onClick={() => onReply?.(message)}
+                type="button"
+              >Reply</button>
             )}
           </div>
         )}

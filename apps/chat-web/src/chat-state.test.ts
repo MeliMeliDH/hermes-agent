@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { appendLocalMessage, applyMessageEvent, historyToBubbles } from './chat-state'
+import { appendLocalMessage, applyMessageEvent, buildReplyPrefixedText, historyToBubbles, splitReplyPrefix } from './chat-state'
 
 const now = () => 1_700_000_000
 
@@ -162,5 +162,54 @@ describe('applyMessageEvent', () => {
     )
 
     expect(bubbles[0]).toMatchObject({ role: 'user', turnStatus: 'seen' })
+  })
+})
+
+describe('buildReplyPrefixedText', () => {
+  it('prepends a disambiguation pointer matching the gateway inbound convention', () => {
+    expect(buildReplyPrefixedText({ role: 'assistant', senderName: 'Hermes', text: 'The plan is X' }, 'do it')).toBe(
+      '[Replying to: "The plan is X"]\n\ndo it'
+    )
+  })
+
+  it("marks a reply to the user's own earlier message distinctly, like the gateway does", () => {
+    expect(buildReplyPrefixedText({ role: 'user', senderName: 'You', text: 'first draft' }, 'actually change this')).toBe(
+      '[Replying to your previous message: "first draft"]\n\nactually change this'
+    )
+  })
+
+  it('sends the full quoted text uncut, never a truncated preview', () => {
+    const long = 'a'.repeat(500)
+
+    expect(buildReplyPrefixedText({ role: 'assistant', senderName: 'Hermes', text: long }, 'ok')).toContain(long)
+  })
+
+  it('falls back to the plain input when the quoted message is empty/whitespace-only', () => {
+    expect(buildReplyPrefixedText({ role: 'assistant', senderName: 'Hermes', text: '   ' }, 'hello')).toBe('hello')
+  })
+})
+
+describe('splitReplyPrefix', () => {
+  it('recovers the reply banner from a stored reply-prefixed message, matching the sender name', () => {
+    const result = splitReplyPrefix('[Replying to: "The plan is X"]\n\ndo it', 'Victoria Hermes')
+
+    expect(result).toEqual({ reply: { role: 'assistant', senderName: 'Victoria Hermes', text: 'The plan is X' }, text: 'do it' })
+  })
+
+  it('recovers a self-reply as role user / "You", not the assistant name', () => {
+    const result = splitReplyPrefix('[Replying to your previous message: "first draft"]\n\nactually change this', 'Victoria Hermes')
+
+    expect(result).toEqual({ reply: { role: 'user', senderName: 'You', text: 'first draft' }, text: 'actually change this' })
+  })
+
+  it('is the exact inverse of buildReplyPrefixedText for a round trip through history', () => {
+    const reply = { role: 'assistant' as const, senderName: 'Victoria Hermes', text: 'earlier answer' }
+    const sent = buildReplyPrefixedText(reply, 'follow-up question')
+
+    expect(splitReplyPrefix(sent, 'Victoria Hermes')).toEqual({ reply, text: 'follow-up question' })
+  })
+
+  it('leaves ordinary text (no reply prefix) untouched', () => {
+    expect(splitReplyPrefix('just a normal message', 'Victoria Hermes')).toEqual({ text: 'just a normal message' })
   })
 })

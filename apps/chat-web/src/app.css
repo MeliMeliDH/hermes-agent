@@ -424,6 +424,63 @@
   max-width: var(--max-width-content);
 }
 
+.composer-reply-preview {
+  align-items: center;
+  background: var(--color-bg-subtle);
+  border-left: var(--space-1) solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: var(--space-2);
+  margin: 0 auto var(--space-2);
+  max-width: var(--max-width-content);
+  padding: var(--space-2) var(--space-3);
+}
+
+.composer-reply-preview-label {
+  color: var(--color-text-muted);
+  flex: 0 0 auto;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.composer-reply-preview-text {
+  color: var(--color-text-muted);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-reply-cancel {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  padding: 0 var(--space-1);
+}
+
+.composer-reply-cancel:hover {
+  color: var(--color-accent);
+}
+
+.message-reply-quote {
+  border-left: var(--space-1) solid var(--color-border);
+  color: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-2);
+  padding-left: var(--space-2);
+}
+
+.message-reply-quote strong {
+  color: var(--color-text);
+}
+
 .composer-attachment {
   align-items: center;
   background: var(--color-bg-subtle);

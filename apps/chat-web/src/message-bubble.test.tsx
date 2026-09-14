@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { MessageBubble } from './MessageBubble'
+import { MessageBubble, truncateReplyPreview } from './MessageBubble'
 
 const assistant = {
   id: 'a1',
@@ -141,5 +141,42 @@ describe('MessageBubble', () => {
   it('does not render a turn-status indicator on assistant messages', () => {
     const html = renderToStaticMarkup(<MessageBubble message={{ ...assistant, turnStatus: 'done' }} />)
     expect(html).not.toContain('message-turn-status')
+  })
+
+  it('shows a reply button for a completed message when a handler is provided', () => {
+    const html = renderToStaticMarkup(<MessageBubble message={assistant} onReply={() => {}} />)
+    expect(html).toContain('aria-label="Reply to message"')
+  })
+
+  it('does not show a reply button while streaming, even with a handler provided', () => {
+    const html = renderToStaticMarkup(<MessageBubble message={{ ...assistant, streaming: true }} onReply={() => {}} />)
+    expect(html).not.toContain('aria-label="Reply to message"')
+  })
+
+  it('renders the quoted reply banner above the message body when replyTo is set', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, replyTo: { role: 'user', senderName: 'You', text: 'earlier question' } }} />
+    )
+
+    expect(html).toContain('message-reply-quote')
+    expect(html).toContain('earlier question')
+  })
+})
+
+describe('truncateReplyPreview', () => {
+  it('leaves a short quote untouched', () => {
+    expect(truncateReplyPreview('short quote')).toBe('short quote')
+  })
+
+  it('collapses internal whitespace/newlines to single spaces', () => {
+    expect(truncateReplyPreview('line one\n\nline   two')).toBe('line one line two')
+  })
+
+  it('truncates a long quote with an ellipsis rather than blowing up bubble height', () => {
+    const long = 'word '.repeat(60).trim()
+    const preview = truncateReplyPreview(long)
+
+    expect(preview.length).toBeLessThan(long.length)
+    expect(preview.endsWith('…')).toBe(true)
   })
 })
