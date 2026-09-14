@@ -33,6 +33,41 @@ export interface ToolCallModel {
   toolId: string
 }
 
+// Contextual activity icon (#9): a quick visual flag for what KIND of
+// activity a tool call represents, matching the pattern Melissa already
+// gets from Discord bots (browser icon for web browsing, wrench for
+// patching/coding, etc.) -- keyed off the real tool names registered in
+// tools/registry.py (see tools/AGENTS.md). Table-driven, not an if/elif
+// ladder on tool name (root code-shape rule), and matched by PREFIX since
+// several tool families share one (search_files vs read_file are both
+// "file", browser_exec vs browser_cdp are both "browser").
+const ACTIVITY_EMOJI_TABLE: [prefix: string, emoji: string][] = [
+  ['browser', '🌐'],
+  ['patch', '🔧'],
+  ['write_file', '🔧'],
+  ['terminal', '🔧'],
+  ['execute_code', '🔧'],
+  ['read_file', '📖'],
+  ['search_files', '🔍'],
+  ['session_search', '🔍'],
+  ['web_search', '🔍'],
+  ['web_extract', '🔍'],
+  ['send_message', '✍️'],
+  ['text_to_speech', '🎙️'],
+  ['image_generate', '🎨'],
+  ['clarify', '❓'],
+  ['delegate_task', '🤝'],
+  ['memory', '🧠'],
+  ['todo', '📋'],
+  ['cronjob', '⏰'],
+  ['computer_use', '🖥️'],
+  ['vision_analyze', '👁️']
+]
+
+export function activityEmojiForTool(name: string): string | undefined {
+  return ACTIVITY_EMOJI_TABLE.find(([prefix]) => name.startsWith(prefix))?.[1]
+}
+
 export interface ClarifyQuestionModel {
   choices?: string[]
   multiSelect: boolean

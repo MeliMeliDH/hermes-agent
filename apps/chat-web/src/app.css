@@ -970,6 +970,11 @@
   font-size: var(--font-size-xs);
 }
 
+.tool-call-emoji {
+  flex: 0 0 auto;
+  font-size: var(--font-size-base);
+}
+
 .tool-call-details {
   border-top: var(--border-width) solid var(--color-border);
   display: grid;

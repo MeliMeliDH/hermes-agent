@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { appendLocalMessage, applyMessageEvent, buildReplyPrefixedText, historyToBubbles, splitReplyPrefix } from './chat-state'
+import { activityEmojiForTool, appendLocalMessage, applyMessageEvent, buildReplyPrefixedText, historyToBubbles, splitReplyPrefix } from './chat-state'
 
 const now = () => 1_700_000_000
 
@@ -211,5 +211,23 @@ describe('splitReplyPrefix', () => {
 
   it('leaves ordinary text (no reply prefix) untouched', () => {
     expect(splitReplyPrefix('just a normal message', 'Victoria Hermes')).toEqual({ text: 'just a normal message' })
+  })
+})
+
+describe('activityEmojiForTool', () => {
+  it('maps real registered tool names to a distinct activity icon', () => {
+    expect(activityEmojiForTool('browser_exec')).toBe('🌐')
+    expect(activityEmojiForTool('patch')).toBe('🔧')
+    expect(activityEmojiForTool('write_file')).toBe('🔧')
+    expect(activityEmojiForTool('search_files')).toBe('🔍')
+    expect(activityEmojiForTool('read_file')).toBe('📖')
+  })
+
+  it('matches by prefix so a tool family shares one icon (browser_cdp, browser_exec)', () => {
+    expect(activityEmojiForTool('browser_cdp')).toBe(activityEmojiForTool('browser_exec'))
+  })
+
+  it('returns undefined for an unmapped tool name rather than a wrong guess', () => {
+    expect(activityEmojiForTool('some_future_tool_not_in_the_table')).toBeUndefined()
   })
 })

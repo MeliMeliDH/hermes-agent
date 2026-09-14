@@ -1,7 +1,7 @@
 import { createElement, Fragment, type ReactNode, useEffect, useState } from 'react'
 
 import { HERMES_BASE_PATH } from './auth'
-import type { ClarifyQuestionModel, InputRequestModel, InputResponse, MessageBubbleModel } from './chat-state'
+import { activityEmojiForTool, type ClarifyQuestionModel, type InputRequestModel, type InputResponse, type MessageBubbleModel } from './chat-state'
 import { initialsForName, type ProfileIdentity } from './identity'
 import { type MessageAttachment, safeMediaUrl } from './message-content'
 
@@ -206,10 +206,12 @@ function displayValue(value: unknown): string {
 
 function ToolCall({ tool }: { tool: NonNullable<MessageBubbleModel['tool']> }) {
   const compactArgs = displayValue(tool.args ?? {})
+  const emoji = activityEmojiForTool(tool.name)
 
   return (
     <details className="tool-call">
       <summary>
+        {emoji && <span aria-hidden className="tool-call-emoji">{emoji}</span>}
         <strong>{tool.name}</strong>
         <code>{compactArgs.replace(/\s+/g, ' ')}</code>
         <span>{tool.status}</span>

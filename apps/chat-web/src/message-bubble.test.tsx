@@ -161,6 +161,23 @@ describe('MessageBubble', () => {
     expect(html).toContain('message-reply-quote')
     expect(html).toContain('earlier question')
   })
+
+  it('renders a contextual activity icon next to a mapped tool call', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, text: '', tool: { name: 'browser_exec', status: 'complete', toolId: 't1' } }} />
+    )
+
+    expect(html).toContain('tool-call-emoji')
+    expect(html).toContain('🌐')
+  })
+
+  it('renders no activity icon for an unmapped tool name', () => {
+    const html = renderToStaticMarkup(
+      <MessageBubble message={{ ...assistant, text: '', tool: { name: 'unmapped_tool_xyz', status: 'complete', toolId: 't2' } }} />
+    )
+
+    expect(html).not.toContain('tool-call-emoji')
+  })
 })
 
 describe('truncateReplyPreview', () => {
