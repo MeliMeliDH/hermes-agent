@@ -28,6 +28,7 @@ export function displayNameForProfile(profileName: string): string {
   const normalized = profileName.trim().toLowerCase()
 
   if (normalized === 'default' || normalized === 'hermes') {return 'Victoria Hermes'}
+
   if (normalized === 'ollamaworker') {return 'LongCat Worker'}
 
   return profileName

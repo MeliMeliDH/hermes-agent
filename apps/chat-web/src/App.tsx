@@ -181,14 +181,18 @@ export function App() {
     // (extraProfilesRef), so switching to e.g. `ollamaworker` doesn't vanish from the sidebar on the next
     // periodic refresh — session.list is profile-scoped server-side, same as session.create/resume.
     const extraProfiles = [...extraProfilesRef.current].filter(profile => profile && profile !== 'default')
+
     const [defaultResult, ...extraResults] = await Promise.all([
       gateway.request<SessionListResult>('session.list', { limit: 200 }),
       ...extraProfiles.map(profile => gateway.request<SessionListResult>('session.list', { limit: 200, profile }))
     ])
+
     const merged = new Map<string, SessionRow>()
+
     for (const row of [...(defaultResult.sessions ?? []), ...extraResults.flatMap(r => r.sessions ?? [])]) {
       merged.set(row.id, row)
     }
+
     const next = [...merged.values()].sort((first, second) => (second.started_at ?? 0) - (first.started_at ?? 0))
     sessionsRef.current = next
     setSessions(next)
@@ -354,6 +358,7 @@ export function App() {
       setActiveStoredId(created.storedId)
       activeStoredRef.current = created.storedId
       persistLastSessionId(created.storedId)
+
       // Server-verified model/provider (session.create's own resolved info, not model self-report) —
       // shown as a banner so switching profiles is confirmed, the way Discord's /new confirms it.
       if (created.info?.model) {
@@ -362,6 +367,7 @@ export function App() {
           [created.storedId]: { model: created.info!.model, profileName: created.info!.profile_name }
         }))
       }
+
       releasePreviews()
       setSelectedAttachments([])
       setMessages([])
@@ -833,6 +839,7 @@ export function App() {
         setNewSessionPickerOpen(false)
       }
     }
+
     window.addEventListener('pointerdown', handlePointerDown)
 
     return () => window.removeEventListener('pointerdown', handlePointerDown)
