@@ -27,7 +27,10 @@ interface ProfileAssetResponse {
 export function displayNameForProfile(profileName: string): string {
   const normalized = profileName.trim().toLowerCase()
 
-  return normalized === 'default' || normalized === 'hermes' ? 'Victoria Hermes' : profileName
+  if (normalized === 'default' || normalized === 'hermes') {return 'Victoria Hermes'}
+  if (normalized === 'ollamaworker') {return 'LongCat Worker'}
+
+  return profileName
 }
 
 export function initialsForName(name: string): string {

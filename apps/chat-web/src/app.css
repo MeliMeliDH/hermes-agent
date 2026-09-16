@@ -376,6 +376,59 @@
   padding: var(--space-3) var(--space-5);
 }
 
+.session-model-banner {
+  background: var(--color-accent-subtle);
+  border-bottom: var(--border-width) solid var(--color-border);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: var(--space-2) var(--space-5);
+}
+
+.new-session-profile-menu {
+  position: relative;
+}
+
+.new-session-profile-toggle {
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
+}
+
+.new-session-profile-dropdown {
+  background: var(--color-bg-raised, var(--color-bg));
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 16px rgb(0 0 0 / 0.3));
+  display: flex;
+  flex-direction: column;
+  min-width: 10rem;
+  overflow: hidden;
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  z-index: 20;
+}
+
+.new-session-profile-option {
+  background: transparent;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+
+.new-session-profile-option:hover {
+  background: var(--color-bg-subtle);
+}
+
+.new-session-profile-option[data-active='true'] {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-medium);
+}
+
 .message-list {
   flex: 1;
   min-height: 0;

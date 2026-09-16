@@ -61,6 +61,10 @@ export function App() {
   const [activeRuntimeId, setActiveRuntimeId] = useState<string | null>(null)
   const [messages, setMessages] = useState<MessageBubbleModel[]>([])
   const [profiles, setProfiles] = useState<Record<string, ProfileIdentity>>({})
+  // #87: profile picker for new sessions + model verification banner.
+  const [newSessionProfile, setNewSessionProfile] = useState('default')
+  const [newSessionPickerOpen, setNewSessionPickerOpen] = useState(false)
+  const [sessionModelInfo, setSessionModelInfo] = useState<Record<string, { model?: string; profileName?: string }>>({})
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -84,6 +88,7 @@ export function App() {
   const runtimesRef = useRef(new Map<string, string>())
   const activeRuntimeRef = useRef<string | null>(null)
   const activeProfileRef = useRef('default')
+  const extraProfilesRef = useRef(new Set<string>())
   const openGenerationRef = useRef(0)
   const messageListRef = useRef<HTMLDivElement | null>(null)
   const messageContentRef = useRef<HTMLDivElement | null>(null)
@@ -172,8 +177,19 @@ export function App() {
 
   const refreshSessions = useCallback(async (gateway = gatewayRef.current) => {
     if (!gateway) {return []}
-    const result = await gateway.request<SessionListResult>('session.list', { limit: 200 })
-    const next = result.sessions ?? []
+    // #87: merge in any non-default profile the picker has actually created a session under this tab
+    // (extraProfilesRef), so switching to e.g. `ollamaworker` doesn't vanish from the sidebar on the next
+    // periodic refresh — session.list is profile-scoped server-side, same as session.create/resume.
+    const extraProfiles = [...extraProfilesRef.current].filter(profile => profile && profile !== 'default')
+    const [defaultResult, ...extraResults] = await Promise.all([
+      gateway.request<SessionListResult>('session.list', { limit: 200 }),
+      ...extraProfiles.map(profile => gateway.request<SessionListResult>('session.list', { limit: 200, profile }))
+    ])
+    const merged = new Map<string, SessionRow>()
+    for (const row of [...(defaultResult.sessions ?? []), ...extraResults.flatMap(r => r.sessions ?? [])]) {
+      merged.set(row.id, row)
+    }
+    const next = [...merged.values()].sort((first, second) => (second.started_at ?? 0) - (first.started_at ?? 0))
     sessionsRef.current = next
     setSessions(next)
 
@@ -318,25 +334,38 @@ export function App() {
     }
   }, [refreshSessions, showSession])
 
-  const handleCreate = async () => {
+  const handleCreate = async (profileOverride?: string) => {
     const gateway = gatewayRef.current
 
     if (!gateway) {return}
     setSessionError(null)
 
+    const profile = profileOverride ?? newSessionProfile
+
+    if (profile && profile !== 'default') {extraProfilesRef.current.add(profile)}
+
     try {
-      const created = await createSession(gateway)
-      const draft: SessionRow = { id: created.storedId, profile: 'default', started_at: Date.now() / 1000, title: 'New session' }
+      const created = await createSession(gateway, profile)
+      const draft: SessionRow = { id: created.storedId, profile, started_at: Date.now() / 1000, title: 'New session' }
       runtimesRef.current.set(created.storedId, created.runtimeId)
       activeRuntimeRef.current = created.runtimeId
-      activeProfileRef.current = 'default'
+      activeProfileRef.current = profile
       setActiveRuntimeId(created.runtimeId)
       setActiveStoredId(created.storedId)
       activeStoredRef.current = created.storedId
       persistLastSessionId(created.storedId)
+      // Server-verified model/provider (session.create's own resolved info, not model self-report) —
+      // shown as a banner so switching profiles is confirmed, the way Discord's /new confirms it.
+      if (created.info?.model) {
+        setSessionModelInfo(current => ({
+          ...current,
+          [created.storedId]: { model: created.info!.model, profileName: created.info!.profile_name }
+        }))
+      }
       releasePreviews()
       setSelectedAttachments([])
       setMessages([])
+      setNewSessionPickerOpen(false)
       setSessions(current => {
         const next = [draft, ...current.filter(row => row.id !== draft.id)]
         sessionsRef.current = next
@@ -793,6 +822,22 @@ export function App() {
   const activeSession = sessions.find(session => session.id === activeStoredId)
   const slashQuery = draft.split(/\s/, 1)[0]?.toLowerCase() ?? ''
 
+  // #87: close the profile-picker dropdown on an outside click (native <select> was tried first but
+  // rendered as an unusable near-zero-width sliver in this layout — a plain button + menu is more
+  // predictable to style).
+  useEffect(() => {
+    if (!newSessionPickerOpen) {return}
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.new-session-profile-menu')) {
+        setNewSessionPickerOpen(false)
+      }
+    }
+    window.addEventListener('pointerdown', handlePointerDown)
+
+    return () => window.removeEventListener('pointerdown', handlePointerDown)
+  }, [newSessionPickerOpen])
+
   const visibleSlashSuggestions = draft.startsWith('/')
     ? slashSuggestions.filter(item => item.command.toLowerCase().startsWith(slashQuery)).slice(0, 8)
     : []
@@ -812,6 +857,34 @@ export function App() {
           </div>
           <div className="sidebar-heading-actions">
             <HubLink />
+            <div className="new-session-profile-menu">
+              <button
+                aria-expanded={newSessionPickerOpen}
+                aria-label="Choose profile for new session"
+                className="button new-session-profile-toggle"
+                disabled={connection !== 'connected'}
+                onClick={() => setNewSessionPickerOpen(open => !open)}
+                title="Choose profile before starting a new session"
+                type="button"
+              >⌄</button>
+              {newSessionPickerOpen && (
+                <div className="new-session-profile-dropdown" role="menu">
+                  {Object.values(profiles).map(profile => (
+                    <button
+                      className="new-session-profile-option"
+                      data-active={profile.name === newSessionProfile ? 'true' : 'false'}
+                      key={profile.name}
+                      onClick={() => {
+                        setNewSessionProfile(profile.name)
+                        void handleCreate(profile.name)
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >{profile.displayName}</button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button aria-label="Create session" className="button button-primary new-session-button" disabled={connection !== 'connected'} onClick={() => void handleCreate()}>+</button>
           </div>
         </div>
@@ -903,6 +976,11 @@ export function App() {
         </header>
 
         {sessionError && <div className="session-error" role="alert">{sessionError}</div>}
+        {activeStoredId && sessionModelInfo[activeStoredId] && (
+          <div className="session-model-banner" role="status">
+            Session started · Profile: {displayNameForProfile(sessionModelInfo[activeStoredId]?.profileName || activeSession?.profile || 'default')} · Model: {sessionModelInfo[activeStoredId]?.model}
+          </div>
+        )}
         <div
           aria-busy={loadingHistory}
           aria-live="polite"

@@ -2,6 +2,16 @@
 
 This file applies to `apps/chat-web/` in addition to the repository-root `AGENTS.md`.
 
+## Skins do NOT apply to Chat Web (intentional)
+
+The Hermes skin engine (`display.skin`, `~/.hermes/skins/*.yaml`) themes the CLI, TUI,
+and the native desktop GUI — **not** Chat Web. Chat Web's look is governed by its own
+CSS (`app.css` + `static/theme.css` patterns), independent of the active skin. Verified
+2026-09-16: setting `display.skin catppuccin-royal` repainted Desktop and CLI/TUI while
+Chat Web was visibly unchanged. Do NOT "fix" a report that a skin "didn't apply to Chat
+UI" — that is the intended behavior, and reverting/activating skins for Chat Web's sake
+is a mistake (this exact churn happened 2026-09-16 and was reverted twice).
+
 ## Restart-free frontend deployment
 
 `hermes-dashboard.service` owns both Chat Web's WebSocket backend and the in-memory agent runtime. Restarting it while someone is chatting terminates the connection and can cut off an in-flight response.

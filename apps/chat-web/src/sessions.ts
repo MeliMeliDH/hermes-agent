@@ -160,10 +160,31 @@ export async function openSession(
   return { history, pendingInputRequests: pendingInputRequests(activated), runtimeId: knownRuntimeId }
 }
 
-export async function createSession(gateway: GatewayRequester): Promise<{ runtimeId: string; storedId: string }> {
-  const created = await gateway.request<SessionRuntimeResponse>('session.create', { cols: 96, source: 'chat-web' })
+export interface SessionInfo {
+  model?: string
+  profile_name?: string
+  provider?: string
+}
 
-  return { runtimeId: created.session_id, storedId: created.stored_session_id ?? created.session_id }
+interface SessionCreateResponse extends SessionRuntimeResponse {
+  info?: SessionInfo
+}
+
+export async function createSession(
+  gateway: GatewayRequester,
+  profile?: string
+): Promise<{ info?: SessionInfo; runtimeId: string; storedId: string }> {
+  const created = await gateway.request<SessionCreateResponse>('session.create', {
+    cols: 96,
+    ...(profile && profile !== 'default' ? { profile } : {}),
+    source: 'chat-web'
+  })
+
+  return {
+    info: created.info,
+    runtimeId: created.session_id,
+    storedId: created.stored_session_id ?? created.session_id
+  }
 }
 
 export async function deleteSession(

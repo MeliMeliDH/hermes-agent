@@ -385,10 +385,15 @@ def _(rid, params: dict) -> dict:
     cwd = _sessions[sid]["cwd"]
     override = session_model_override or {}
     messages = _history_to_messages(history)  # hidden seed rows are not on the wire; count what is (as resume does)
+    # The selected profile's own config isn't bound as the ambient HERMES_HOME yet at this point (that only
+    # happens later, inside the async agent build) — reading _resolve_model() unscoped here would report the
+    # CALLER's profile config, not the new session's, on every cross-profile session.create (chat-web #87).
+    with _profile_build_scope(profile_home):
+        resolved_model = override.get("model") if override else _resolve_model()
     return _ok(rid, {
         "session_id": sid, "stored_session_id": key, "message_count": len(messages), "messages": messages,
         # Reflect the override now so the client doesn't clobber its sticky pick.
-        "info": {"model": override.get("model") if override else _resolve_model(),
+        "info": {"model": resolved_model,
                  **({"provider": override["provider"]} if override.get("provider") else {}),
                  "tools": {}, "skills": {}, "cwd": cwd, "branch": git_probe.branch(cwd),
                  "project": _project_info_for_cwd(cwd), "lazy": True, "desktop_contract": DESKTOP_BACKEND_CONTRACT,
